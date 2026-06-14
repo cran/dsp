@@ -32,7 +32,7 @@
 #'  "gaussian"    \tab "smoothing"       \tab \code{D}, \code{evol_error}, \code{obsSV}, \code{D_asv}, \code{evol_error_asv}, \code{nugget_asv}\cr
 #'  "gaussian"    \tab "regression"      \tab \code{D}, \code{evol_error}, \code{obsSV}, \code{X}, \code{D_asv}, \code{evol_error_asv}, \code{nugget_asv} \cr
 #'  "gaussian"    \tab "bspline"        \tab \code{D}, \code{evol_error}, \code{obsSV}, \code{times}, \code{num_knots}  \cr
-#'  "negbinomial"    \tab "smoothing"       \tab \code{D}, \code{evol_error}, \code{r_init}, \code{r_sample}, \code{offset}  \cr
+#'  "negbinomial"    \tab "smoothing"       \tab \code{D}, \code{evol_error}, \code{r_user}, \code{offset}  \cr
 #' }
 #'
 #'   \itemize{
@@ -54,7 +54,7 @@
 #'         \item \code{evol_error}: the evolution error distribution; .
 #'            \itemize{
 #'              \item the dynamic horseshoe prior ("DHS") (default);
-#'              \item the static horseshoe prior ("HS");
+#'              \item the horseshoe prior ("HS");
 #'              \item the Bayesian lasso ("BL") (\code{family} = "gaussian" only);
 #'              \item the normal stochastic volatility model ("SV") (\code{family} = "gaussian" only);
 #'              \item the normal-inverse-gamma prior ("NIG") (\code{family} = "gaussian" only).
@@ -73,15 +73,12 @@
 #'        }
 #'        \item \code{model} = "bspline":
 #'        \itemize{
-#'          \item \code{times}: length \code{T} vector; observation indices; if NULL (Default), assume equally spaced.
+#'          \item \code{times}: length \code{T} vector; observation indices; if `NULL` (Default), assume equally spaced.
 #'          \item \code{num_knots}: numeric; the number of knots to be used for bspline. defaults to 20. Has to be at least 4.
 #'        }
 #'        \item \code{family} = "negbinomial", \code{model} = "smoothing":
 #'        \itemize{
-#'          \item \code{r_init}: numeric; initial value (defaults to 5) of MCMC sampling for
-#'          overdispersion parameter.
-#'          \item \code{r_sample}: logical; If `TRUE`, the overdispersion is sampled,
-#'          if `FALSE` (default), fixed at "\code{r_init}.
+#'          \item \code{r_user}: numeric; if `NULL` (Default), MCMC sampling is done for the overdispersion parameter \code{r}; If a positive numeric value is passed, the overdispersion is fixed to that value. Observation distribution approximately Poisson if a large numeric value is passed.
 #'          \item \code{offset}: length \code{T} vector; offset values for the log conditional expectation
 #'        }
 #'     }
@@ -113,6 +110,15 @@ dsp_spec <- function(family,
   # Extract obsSV if provided
   obsSV <- input_args$obsSV
   if (is.null(obsSV)) obsSV <- "NONE"  # default fallback if needed
+
+  # Transform r_user to the two arguments r_init and r_sample
+  if(!is.null(input_args$r_user)){
+    input_args$r_init <- input_args$r_user
+    input_args$r_sample <- FALSE
+  }
+
+  # if NULL, just drop the input arg and the behavior will be default
+  input_args$r_user <- NULL
 
   #inputted arguments
   required_args <- function(family,model){
@@ -203,7 +209,7 @@ dsp_spec <- function(family,
         stop("num_knots must be an integer >= 4, or NULL.")
       }
     },
-    r_init = function(family,x){ if (!is.numeric(x) || x < 0) stop("r_init nust be a positive number.")},
+    r_init = function(family,x){ if (!is.numeric(x) || x < 0) stop("r_user nust be a positive number.")},
     r_sample = function(family,x) { if (is.na(x) || !is.logical(x)) stop("r_sample must be TRUE or FALSE.")},
     offset = function(family,x){ if (any(is.na(x)) || !is.numeric(x)) stop("offset must be a vector") }
   )
@@ -278,11 +284,10 @@ dsp_spec <- function(family,
 #' Shared parameters across wrappers include:
 #' \itemize{
 #'   \item \code{mu}: Conditional mean.
-#'   \item \code{yhat}: Posterior predictive \eqn{\hat{y}_t}.
+#'   \item \code{ypred}: Posterior predictive \eqn{\tilde{y}_t}.
 #'   \item \code{evol_sigma_t2}: Variance of the state variable.
 #'   \item \code{obs_sigma_t2}: Observation variance \eqn{\sigma^2_{\epsilon}} (\code{family = "gaussian"}).
 #'   \item \code{dhs_phi}, \code{dhs_mean}: DHS hyperparameter draws (\code{evol_error = "DHS"}).
-#'   \item \code{h}: Time-varying log-volatility component, \code{log(obs_sigma_t2)} (\code{obsSV = "ASV"}).
 #' }
 #'
 #' Model-specific parameters include:
@@ -292,7 +297,7 @@ dsp_spec <- function(family,
 #'     \item \code{omega}: \eqn{D}-th differenced posterior mean draws, \eqn{\mu_t}.
 #'     \item \code{zeta}: anomaly component (when \code{useAnom = TRUE}).
 #'     \item \code{zeta_sigma_t2}: anomaly variance (when \code{useAnom = TRUE}).
-#'     \item \code{r}: threshold parameter in the thresholded DHS log-volatility dynamics.
+#'     \item \code{gamma}: threshold parameter in the thresholded DHS log-volatility dynamics.
 #'   }
 #'   \item \code{regression} (Gaussian):
 #'   \itemize{

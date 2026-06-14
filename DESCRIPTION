@@ -1,7 +1,7 @@
 Type: Package
 Package: dsp
 Title: Dynamic Shrinkage Process and Change Point Detection
-Version: 1.4.0
+Version: 1.5.0
 Authors@R: c(
     person("Daniel R.", "Kowal", , "daniel.kowal@rice.edu", role = c("aut", "cph")),
     person("Haoxuan", "Wu", , "hw399@cornell.edu", role = c("aut")),
@@ -39,7 +39,7 @@ Config/testthat/edition: 3
 URL: https://github.com/schafert/dsp
 BugReports: https://github.com/schafert/dsp/issues
 NeedsCompilation: yes
-Packaged: 2026-05-12 18:42:15 UTC; torynschafer
+Packaged: 2026-06-14 17:41:39 UTC; torynschafer
 Author: Daniel R. Kowal [aut, cph],
   Haoxuan Wu [aut],
   Toryn Schafer [aut, cre] (ORCID:
@@ -48,4 +48,4 @@ Author: Daniel R. Kowal [aut, cph],
   David S. Matteson [aut]
 Maintainer: Toryn Schafer <toryn27@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-05-12 19:00:12 UTC
+Date/Publication: 2026-06-14 19:20:08 UTC
