@@ -1,6 +1,6 @@
-d1a2097afca6a5929af90353568102e3 *DESCRIPTION
+f43908f38f632a74f8a8171938c2b3a1 *DESCRIPTION
 d13522e96334cba79befaca9db1ce3c5 *NAMESPACE
-ca0f30bf0c168221e8163edd12cbe3c0 *NEWS.md
+16bcb6143ca1cb2f086b2ef752de1c36 *NEWS.md
 691d63d68ed763fd95a6919513358597 *R/ASV.R
 47692c90db48502cb86599c3cb8b1e7f *R/RcppExports.R
 9f74513d33d57c7054655fc24aa5f41c *R/abco.R
@@ -11,7 +11,7 @@ f54c45d211ce571135ac6fd179227f46 *R/component_samplers.R
 e66695fa6ac31b988e7aa511f473d1d4 *R/mcmc_samplers.R
 9882eb0fe745b70fc0bffc117124177a *R/nb_btf.R
 a28ac9fc3fed340407a351057a5acddd *R/other_functions.R
-bf8c0a57439d89b63d772f1f53b2887f *R/plotmethods.R
+da11a04a5ffee7be8a9903fba4a593b9 *R/plotmethods.R
 c7f72c2837a28f54daece1f87c50913a *R/predict.R
 defaa4639993f8023196ef27e18b129f *R/print.R
 36315e1fa5920027e2e0599dcbcc0676 *R/summary.R
