@@ -111,6 +111,21 @@ dsp_spec <- function(family,
   obsSV <- input_args$obsSV
   if (is.null(obsSV)) obsSV <- "NONE"  # default fallback if needed
 
+  # r_init and r_sample are internal, driven by r_user. Reject them if supplied
+  # directly: r_user overwrites both, so a directly supplied value would look
+  # like it took effect while being silently discarded. This runs before the
+  # r_user transform below so that it does not catch that transform's own
+  # assignments.
+  if(family == "negbinomial"){
+    directArgs <- intersect(c("r_init", "r_sample"), names(input_args))
+    if(length(directArgs) > 0){
+      warning(sprintf(
+        "The following arguments are set through 'r_user' and cannot be supplied directly; they will be ignored: %s",
+        paste(directArgs, collapse = ", ")), call. = FALSE)
+      for(arg in directArgs) input_args[[arg]] <- NULL
+    }
+  }
+
   # Transform r_user to the two arguments r_init and r_sample
   if(!is.null(input_args$r_user)){
     input_args$r_init <- input_args$r_user
@@ -226,7 +241,7 @@ dsp_spec <- function(family,
   # If any of the required arguments are missing give them default values
   default_args <- list(D =2, useAnom = FALSE, obsSV = "const",times = NULL,
                        evol_error = "DHS", num_knots = 20,
-                       r_init = 5, r_sample = FALSE, offset = 0,
+                       r_init = 5, r_sample = TRUE, offset = 0,
                        D_asv = 1,evol_error_asv = "HS",nugget_asv = FALSE)
   requiredArgs = setdiff(required_args(family,model), names(input_args))
   # X is required to run regression
@@ -270,6 +285,9 @@ dsp_spec <- function(family,
 #' @param computeDIC logical; if TRUE (default), compute the deviance information criterion \code{DIC}
 #' and the effective number of parameters \code{p_d}
 #' @param verbose logical; should extra information on progress be printed to the console? Defaults to FALSE
+#' @param seed optional integer; if supplied, seeds the random number generator
+#' for a reproducible fit. Equivalent to calling \code{set.seed()} beforehand,
+#' and applies to every family and model.
 #' @param ... optional additional arguments to pass to the MCMC sampler.
 #'
 #' @return \code{dsp_fit} returns an object of class "\code{dsp}".
@@ -335,10 +353,31 @@ dsp_fit = function(y, model_spec,
                       nsave = 1000, nburn = 1000, nskip = 4,
                       computeDIC = TRUE,
                       verbose = TRUE,
+                      seed = NULL,
                       ...){
   if (!inherits(model_spec, "dsp_spec")) {
     stop("'model_spec' must be an object created by 'dsp_spec()'.")
   }
+
+  # All seeding happens here, so every family and model behaves the same way.
+  # Individual fitters must not call set.seed() themselves.
+  #
+  # Note set.seed(NULL) does not leave the RNG alone, it re-initializes it from
+  # system entropy, so seed is only applied when actually supplied.
+  if(!is.null(seed)) set.seed(seed)
+
+  # The state draws use RcppZiggurat::zrnorm, which has its own RNG stream that
+  # set.seed() cannot reach. Left alone, that stream simply continues from
+  # wherever the last call left it, so two dsp_fit() calls in one session return
+  # different results even under the same set.seed(). It only looks reproducible
+  # under Rscript, because a fresh process always starts the stream in the same
+  # place.
+  #
+  # The line below ties the two streams together. sample.int() draws from R's
+  # RNG, which set.seed() does control, so a given set.seed() always yields the
+  # same number here, and that number is what the Ziggurat stream starts from.
+
+  RcppZiggurat::zsetseed(sample.int(.Machine$integer.max, 1))
 
   family = model_spec$family
   model = model_spec$model
@@ -372,7 +411,19 @@ dsp_fit = function(y, model_spec,
                                                verbose = verbose, ...))
   }
 
+  .dsp_state$n_illcond = 0L
+
   mcmc_output = do.call(fitter, input_args)
+
+  # Report ill-conditioned state draws once for the whole fit. These draws are
+  # valid, but they came from a precision matrix that could not be factorized
+  # until the evolution variances were floored, so the posterior is not purely
+  # the one specified by the prior.
+  if(.dsp_state$n_illcond > 0)
+    warning(.dsp_state$n_illcond, ' state draw(s) required a conditioning ',
+            'fallback: the precision matrix could not be factorized until the ',
+            'evolution variances were floored.', call. = FALSE)
+
   structure(list(mcmc_output = mcmc_output,
                  DIC = mcmc_output[c("DIC", "p_d")],
                  mcpar = c(nsave = nsave, nburn = nburn, nskip = nskip),
