@@ -1,7 +1,7 @@
 Type: Package
 Package: dsp
 Title: Dynamic Shrinkage Process and Change Point Detection
-Version: 1.6.0
+Version: 1.7.0
 Authors@R: c(
     person("Daniel R.", "Kowal", , "daniel.kowal@rice.edu", role = c("aut", "cph")),
     person("Haoxuan", "Wu", , "hw399@cornell.edu", role = c("aut")),
@@ -24,7 +24,7 @@ Description: Provides efficient Markov chain Monte Carlo (MCMC) algorithms for
     outlier detection, and change point estimation.
     Methods in this package are described in Kowal et al. (2019) <doi:10.1111/rssb.12325>, 
     Wu et al. (2024) <doi:10.1080/07350015.2024.2362269>, Schafer and Matteson (2024)
-    <doi:10.1080/00401706.2024.2407316>, and Cho and Matteson (2024) <doi:10.48550/arXiv.2408.11315>.
+    <doi:10.1080/00401706.2024.2407316>, and Cho and Matteson (2026) <doi:10.1080/07350015.2025.2602846>.
 License: GPL (>= 3)
 Depends: R (>= 4.1.0)
 Imports: coda, fda, graphics, grDevices, Matrix, MCMCpack, methods,
@@ -39,7 +39,7 @@ Config/testthat/edition: 3
 URL: https://github.com/schafert/dsp
 BugReports: https://github.com/schafert/dsp/issues
 NeedsCompilation: yes
-Packaged: 2026-07-21 21:45:58 UTC; torynschafer
+Packaged: 2026-10-16 02:06:19 UTC; torynschafer
 Author: Daniel R. Kowal [aut, cph],
   Haoxuan Wu [aut],
   Toryn Schafer [aut, cre] (ORCID:
@@ -48,4 +48,4 @@ Author: Daniel R. Kowal [aut, cph],
   David S. Matteson [aut]
 Maintainer: Toryn Schafer <toryn27@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-07-21 22:50:09 UTC
+Date/Publication: 2026-10-16 02:40:08 UTC

@@ -2,11 +2,11 @@
 % Please edit documentation in R/plotmethods.R
 \name{plot.dsp}
 \alias{plot.dsp}
-\title{Plot the Bayesian trend filtering fitted values}
+\title{Plot posterior summaries from a fitted dsp model}
 \usage{
 \method{plot}{dsp}(
   x,
-  type,
+  type = "mu",
   true_values = NULL,
   times = NULL,
   y_obs = NULL,
@@ -31,7 +31,7 @@
 \arguments{
 \item{x}{an object of class \code{dsp} from \code{\link[=dsp_fit]{dsp_fit()}}.}
 
-\item{type}{character string giving the parameter name to visualize; must be one of the entries in \code{x$mcmc_output}.}
+\item{type}{character string giving the parameter name to visualize; must be one of the entries in \code{x$mcmc_output}. Defaults to \code{"mu"}.}
 
 \item{true_values}{optional ground-truth values to overlay on the plot. For scalar parameters, this should be a length-1 numeric value; for time-varying parameters, a \verb{T x 1} vector; and for multi-parameter time-varying quantities, a \verb{T x p} matrix matching the plotted parameter dimensions.}
 
@@ -75,8 +75,12 @@
 No return value, called for side effects
 }
 \description{
-Plot the BTF posterior mean of the conditional expectation with posterior credible intervals (pointwise and joint),
-the observed data, and true curves (if known)
+Visualize posterior samples for a selected parameter from a fitted
+\code{dsp} object. The parameter to plot is chosen with \code{type}, which must name
+one of the entries in \code{x$mcmc_output} and defaults to \code{"mu"}.
+Depending on the dimension of the selected posterior samples, the
+function produces either a posterior density plot, a time-series plot
+with credible intervals, or a multi-panel time-series plot.
 }
 \details{
 The plotting behavior depends on the dimension of the posterior samples stored in \code{x$mcmc_output[[type]]}:
@@ -107,7 +111,7 @@ for (k in 2:100){
 y = signal + noise
 model_spec = dsp_spec(family = "gaussian", model = "changepoint",
                       D = 1, useAnom = TRUE, obsSV = "SV")
-mcmc_output = dsp_fit(y, model_spec = model_spec, nsave = 500, nburn = 500)
+mcmc_output = dsp_fit(y, model_spec = model_spec, nsave = 200, nburn = 200)
 # Estimated posterior mean vs ground truth
 plot(mcmc_output, type = "mu", true_values = signal)
 # Estimated innovation variance vs ground truth for illustration only

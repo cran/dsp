@@ -17,14 +17,12 @@ samples exceeding the threshold needed to label a changepoint}
 \item{...}{currently unused}
 }
 \value{
-If cp_prop = FALSE, a numeric vector of indices that correspond to indices of the observed data.
+If \code{cp_prop = FALSE}, an integer vector containing the indices of detected changepoints in the observed data.
+If no changepoints are detected, an empty integer vector is returned.
+
 If cp_prop = TRUE, a list containing:
-
-\if{html}{\out{<div class="sourceCode">}}\preformatted{- 'cp_t':  a numeric vector of indices that correspond to indices of the observed data.
-- 'cp_prop': a numeric vector of length (T - D) with the pointwise proportion of samples where the increment exceeds the threshold.
-}\if{html}{\out{</div>}}
-
-If no proportions exceed cp_thres, then the vector will be a length 0 integer vector.
+- 'cp_t':  an integer vector containing the indices of detected changepoints.
+- 'cp_prop': a numeric vector of length \code{T - D} containing the pointwise posterior proportions of threshold exceedance.
 }
 \description{
 Predict changepoints from the output of ABCO
@@ -45,7 +43,7 @@ for (k in 2:100){
 y = signal + noise
 model_spec = dsp_spec(family = "gaussian", model = "changepoint",
                       D = 1, useAnom = TRUE)
-mcmc_output = dsp_fit(y, model_spec = model_spec, nsave = 500, nburn = 500)
+mcmc_output = dsp_fit(y, model_spec = model_spec, nsave = 200, nburn = 200)
 predict(mcmc_output)
 
 }
