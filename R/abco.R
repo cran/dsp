@@ -8,7 +8,7 @@
 ## usethis namespace: end
 NULL
 #----------------------------------------------------------------------------
-#' Adaptive Bayesian Changepoint with Outliers
+#' Adaptive Bayesian changepoint with outliers
 #'
 #' Run the MCMC sampler for ABCO with a penalty on
 #' first (D = 1), or second (D = 2) differences of the conditional expectation.
@@ -37,7 +37,7 @@ NULL
 #' \item "ypred" (posterior predictive distribution)
 #' \item "evol_sigma_t2" (evolution error variance)
 #' \item "gamma": (Threshold parameter in the thresholded DHS log-volatility dynamics).
-#' \item "zeta": (Outlier component)
+#' \item "zeta": (Outlier component, zero for the first D time points)
 #' \item "obs_sigma_t2" (observation error variance)
 #' \item "zeta_sigma_t2" (outlier error variance)
 #' \item "dhs_phi" (DHS AR(1) coefficient)
@@ -129,17 +129,16 @@ abco = function(y, D = 1, useAnom=TRUE, obsSV = "const",
   # Store the MCMC output in separate arrays (better computation times)
   mcmc_output = vector('list', length(mcmc_params)); names(mcmc_output) = mcmc_params
   if(!is.na(match('mu', mcmc_params))) post_mu = array(NA, c(nsave, nT))
-  if(!is.na(match('zeta', mcmc_params))) post_zeta = array(NA, c(nsave, nT-D))
+  if(!is.na(match('zeta', mcmc_params))) post_zeta = array(NA, c(nsave, nT))
   if(!is.na(match('ypred', mcmc_params))) post_ypred = array(NA, c(nsave, nT))
   if(!is.na(match('log_evol', mcmc_params))) post_log_evol = array(NA, c(nsave, nT-D))
   if(!is.na(match('gamma', mcmc_params)) && evol_error == "DHS") post_r = numeric(nsave)
   if(!is.na(match('omega', mcmc_params))) post_omega = array(NA, c(nsave, nT-D))
-  if(!is.na(match('zeta_sigma_t2', mcmc_params))) post_zeta_sigma_t2 = array(NA, c(nsave, nT-D))
+  if(!is.na(match('zeta_sigma_t2', mcmc_params))) post_zeta_sigma_t2 = array(NA, c(nsave, nT))
   if(!is.na(match('obs_sigma_t2', mcmc_params))) post_obs_sigma_t2 = array(NA, c(nsave, nT))
   if(!is.na(match('evol_sigma_t2', mcmc_params))) post_evol_sigma_t2 = array(NA, c(nsave, nT))
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi = numeric(nsave)
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean = numeric(nsave)
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h = array(NA,c(nsave,nT))
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth = array(NA,c(nsave,nT))
   post_loglike = numeric(nsave)
 
@@ -230,8 +229,11 @@ abco = function(y, D = 1, useAnom=TRUE, obsSV = "const",
 
         if(!is.na(match('mu', mcmc_params))) post_mu[isave,] = mu
         if (useAnom) {
-          if(!is.na(match('zeta', mcmc_params))) post_zeta[isave,] = zeta
-          if(!is.na(match('zeta_sigma_t2', mcmc_params))) post_zeta_sigma_t2[isave,] = zeta_params$sigma_wt^2
+          # The anomaly is defined for t > D only (Wu et al. 2024). It is stored
+          # with zeros for t <= D, where it is fixed at zero, so that the
+          # columns align with y.
+          if(!is.na(match('zeta', mcmc_params))) post_zeta[isave,] = c(rep(0,D),zeta)
+          if(!is.na(match('zeta_sigma_t2', mcmc_params))) post_zeta_sigma_t2[isave,] = c(rep(0,D),zeta_params$sigma_wt^2)
           if(!is.na(match('ypred', mcmc_params))) post_ypred[isave,] = mu + c(rep(0,D),zeta) + rnorm(nT, 0, sigma_e)
         }else{
           if(!is.na(match('ypred', mcmc_params))) post_ypred[isave,] = mu + rnorm(nT, 0, sigma_e)
@@ -243,7 +245,6 @@ abco = function(y, D = 1, useAnom=TRUE, obsSV = "const",
         if(!is.na(match('evol_sigma_t2', mcmc_params))) post_evol_sigma_t2[isave,] = c(evolParams0$sigma_w0^2, evolParams$sigma_wt^2)
         if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi[isave] = evolParams$dhs_phi
         if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean[isave] = evolParams$dhs_mean
-        # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV")  post_h[isave,] = sParams$s_mu
         if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth[isave,] = sParams$s_mu_sm
         if(useAnom){
           post_loglike[isave] = sum(stats::dnorm(y, mean = mu + c(rep(0,D),zeta), sd = sigma_e, log = TRUE))
@@ -261,11 +262,11 @@ abco = function(y, D = 1, useAnom=TRUE, obsSV = "const",
   if(!is.na(match('log_evol', mcmc_params))) mcmc_output$log_evol = post_log_evol
   if(!is.na(match('omega', mcmc_params))) mcmc_output$omega = post_omega
   if(!is.na(match('zeta_sigma_t2', mcmc_params))) mcmc_output$zeta_sigma_t2 = post_zeta_sigma_t2
-  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2
+  # A constant variance is one draw per iteration, not one per time point
+  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = if(obsSV == "const") post_obs_sigma_t2[, 1] else post_obs_sigma_t2
   if(!is.na(match('evol_sigma_t2', mcmc_params))) mcmc_output$evol_sigma_t2 = post_evol_sigma_t2
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_phi = post_dhs_phi
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_mean = post_dhs_mean
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") mcmc_output$h = post_h
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) mcmc_output$h_smooth = post_h_smooth
   mcmc_output$loglike = post_loglike
 
@@ -276,7 +277,7 @@ abco = function(y, D = 1, useAnom=TRUE, obsSV = "const",
     #                                  mu = exp(colMeans(post_mu + offset)),
     #                                  log = TRUE))
     if(useAnom){
-      loglike_hat = sum(stats::dnorm(y, mean = colMeans(post_mu) + c(rep(0,D),colMeans(post_zeta)), sd = colMeans(sqrt(post_obs_sigma_t2)), log = TRUE))
+      loglike_hat = sum(stats::dnorm(y, mean = colMeans(post_mu) + colMeans(post_zeta), sd = colMeans(sqrt(post_obs_sigma_t2)), log = TRUE))
     }else{
       loglike_hat = sum(stats::dnorm(y, mean = colMeans(post_mu) , sd = colMeans(sqrt(post_obs_sigma_t2)), log = TRUE))
     }
@@ -296,12 +297,21 @@ abco = function(y, D = 1, useAnom=TRUE, obsSV = "const",
 #----------------------------------------------------------------------------
 #' Initialize the anomaly component parameters
 #'
-#' Compute initial values for either a horseshoe prior or horseshoe+ prior
-#' for the anomaly component.
+#' Compute initial values for the horseshoe+ prior (Bhadra et al. 2017) on the
+#' anomaly component, as in Wu et al. (2024).
 #'
-#' @param zeta \code{T} vector of initial estimates.
-#' @return List of relevant components: \code{sigma_wt}, the \code{T} vector of standard deviations,
-#' and additional parameters for inverse gamma priors (shape and scale).
+#' @param zeta \code{T - D} vector of initial estimates.
+#' @return List of relevant components: \code{sigma_wt}, the \code{T - D} vector of standard deviations,
+#' and the auxiliary variables of the inverse-gamma representation of the prior.
+#'
+#' @references
+#' Bhadra, A., Datta, J., Polson, N. G., and Willard, B. (2017).
+#' The horseshoe+ estimator of ultra-sparse signals.
+#' \emph{Bayesian Analysis}, \strong{12}(4), 1105--1131. \doi{10.1214/16-BA1028}
+#'
+#' Wu, H., Schafer, T. L. J., and Matteson, D. S. (2024).
+#' Trend and variance adaptive Bayesian changepoint analysis and local outlier scoring.
+#' \emph{Journal of Business & Economic Statistics}. \doi{10.1080/07350015.2024.2362269}
 #'
 #' @importFrom MCMCpack rinvgamma
 #' @keywords internal
@@ -309,48 +319,48 @@ t_initEvolZeta_ps = function(zeta){
   zeta = as.matrix(zeta)
   n = nrow(zeta)
 
+  # Global scale
   xi = MCMCpack::rinvgamma(1, 1/2, 1)
   tau_t2 = MCMCpack::rinvgamma(1, 1/2, 1/xi)
 
-  #eta_v = MCMCpack::rinvgamma(n, 1/2, 1)
-  #eta_t2 = MCMCpack::rinvgamma(n, 1/2, 1/eta_v)
+  # Horseshoe+ adds a half-Cauchy local scale eta_t to the horseshoe
+  eta_v = MCMCpack::rinvgamma(n, 1/2, 1)
+  eta_t2 = MCMCpack::rinvgamma(n, 1/2, 1/eta_v)
 
-  #v = MCMCpack::rinvgamma(n, 1/2, 1/eta_t2/tau_t2)
-  v = MCMCpack::rinvgamma(n, 1/2, 1/tau_t2)
+  v = MCMCpack::rinvgamma(n, 1/2, 1/eta_t2/tau_t2)
   lambda_t2 = MCMCpack::rinvgamma(n, 1/2, 1/v)
 
-  #list(xi=xi, v=v, eta_v = eta_v, tau_t2 = tau_t2, lambda_t2 = lambda_t2, eta_t2 = eta_t2,
-  #     sigma_wt = sqrt(lambda_t2))
-  list(xi=xi, v=v, tau_t2 = tau_t2, lambda_t2 = lambda_t2, sigma_wt = sqrt(lambda_t2))
+  list(xi=xi, v=v, eta_v = eta_v, tau_t2 = tau_t2, lambda_t2 = lambda_t2, eta_t2 = eta_t2,
+       sigma_wt = sqrt(lambda_t2))
 }
 #----------------------------------------------------------------------------
 #' Sampler for the anomaly component parameters
 #'
-#' Compute one draw of the anomaly component parameters.
+#' Compute one draw of the parameters of the horseshoe+ prior on the anomaly
+#' component, as in Wu et al. (2024). As in the code of that paper, the
+#' additional local scale has a half-Cauchy prior with scale 4, so its
+#' auxiliary variable \code{eta_v} has rate \code{1/16}.
 #'
-#' @param omega \code{T} vector of errors
+#' @param omega \code{T - D} vector of anomalies
 #' @param evolParams list of parameters to be updated
 #' @return List of relevant components in \code{evolParams}:  \code{sigma_wt},
-#' the \code{T} vector of standard deviations, and additional parameters for inverse gamma priors (shape and scale).
+#' the \code{T - D} vector of standard deviations, and the auxiliary variables of the inverse-gamma representation of the prior.
 #'
 #' @importFrom MCMCpack rinvgamma
 #' @keywords internal
 t_sampleEvolZeta_ps = function(omega, evolParams){
-  #omega = as.matrix(omega)
   n = length(omega)
 
   hsInput2 = omega^2
 
   evolParams$lambda_t2 = MCMCpack::rinvgamma(n, 1, 1/evolParams$v + hsInput2/2)
-  #evolParams$v = MCMCpack::rinvgamma(n, 1, 1/evolParams$lambda_t2 + 1/evolParams$tau_t2/evolParams$eta_t2)
-  evolParams$v = MCMCpack::rinvgamma(n, 1, 1/evolParams$lambda_t2 + 1/evolParams$tau_t2)
+  evolParams$v = MCMCpack::rinvgamma(n, 1, 1/evolParams$lambda_t2 + 1/evolParams$tau_t2/evolParams$eta_t2)
 
-  #evolParams$tau_t2 = MCMCpack::rinvgamma(1, (n+1)/2, 1/evolParams$xi + sum(1/evolParams$v/evolParams$eta_t2))
-  evolParams$tau_t2 = MCMCpack::rinvgamma(1, (n+1)/2, 1/evolParams$xi + sum(1/evolParams$v))
+  evolParams$tau_t2 = MCMCpack::rinvgamma(1, (n+1)/2, 1/evolParams$xi + sum(1/evolParams$v/evolParams$eta_t2))
   evolParams$xi = MCMCpack::rinvgamma(1, 1, 1+1/evolParams$tau_t2)
 
-  #evolParams$eta_t2 = MCMCpack::rinvgamma(n, 1, 1/evolParams$eta_v+1/evolParams$v/evolParams$tau_t2)
-  #evolParams$eta_v = MCMCpack::rinvgamma(n, 1, 1/16+1/evolParams$eta_t2)
+  evolParams$eta_t2 = MCMCpack::rinvgamma(n, 1, 1/evolParams$eta_v+1/evolParams$v/evolParams$tau_t2)
+  evolParams$eta_v = MCMCpack::rinvgamma(n, 1, 1/16+1/evolParams$eta_t2)
 
   evolParams$sigma_wt = sqrt(evolParams$lambda_t2)
 
@@ -399,19 +409,22 @@ t_sampleBTF = function(y, obs_sigma_t2, evol_sigma_t2, D = 1, loc_obs){
     mu = rnorm(n = nT, mean = postMean, sd = postSD)
 
   } else {
-    # Original sampler, based on Matrix package:
-    if (D == 1) {
-      diag1 = 1/obs_sigma_t2 + 1/evol_sigma_t2 + c(1/evol_sigma_t2[-1], 0)
-      diag2 = -1/evol_sigma_t2[-1]
-      rd = RcppZiggurat::zrnorm(nT)
-      mu = sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2), length(diag1), length(loc_obs$r), c(linht), rd, D)
-    } else {
-      diag1 = 1/obs_sigma_t2 + 1/evol_sigma_t2 + c(0, 4/evol_sigma_t2[-(1:2)], 0) + c(1/evol_sigma_t2[-(1:2)], 0, 0)
-      diag2 = c(-2/evol_sigma_t2[3], -2*(1/evol_sigma_t2[-(1:2)] + c(1/evol_sigma_t2[-(1:3)],0)))
-      diag3 = 1/evol_sigma_t2[-(1:2)]
-      rd = RcppZiggurat::zrnorm(nT)
-      mu = sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2, diag3, diag3), length(diag1), length(loc_obs$r), c(linht), rd, D)
-    }
+    mu = .btf_try_precision({
+      # Existing Eigen precision sampler:
+      if (D == 1) {
+        diag1 = 1/obs_sigma_t2 + 1/evol_sigma_t2 + c(1/evol_sigma_t2[-1], 0)
+        diag2 = -1/evol_sigma_t2[-1]
+        rd = RcppZiggurat::zrnorm(nT)
+        mu = sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2), length(diag1), length(loc_obs$r), c(linht), rd, D)
+      } else {
+        diag1 = 1/obs_sigma_t2 + 1/evol_sigma_t2 + c(0, 4/evol_sigma_t2[-(1:2)], 0) + c(1/evol_sigma_t2[-(1:2)], 0, 0)
+        diag2 = c(-2/evol_sigma_t2[3], -2*(1/evol_sigma_t2[-(1:2)] + c(1/evol_sigma_t2[-(1:3)],0)))
+        diag3 = 1/evol_sigma_t2[-(1:2)]
+        rd = RcppZiggurat::zrnorm(nT)
+        mu = sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2, diag3, diag3), length(diag1), length(loc_obs$r), c(linht), rd, D)
+      }
+      mu
+    }, sampleBTF_sqrt(y, obs_sigma_t2, evol_sigma_t2, D))
   }
 
   # And return the states:
@@ -478,8 +491,6 @@ t_sampleEvolParams = function(omega, evolParams, D = 1, sigma_e = 1, lower_b, up
 
   # Sample the evolution error SD of log-vol (i.e., Polya-Gamma mixing weights)
   eta_t = ht_tilde[-1] - (dhs_phi+ dhs_phi2*st[-n])*ht_tilde[-n]       # Residuals
-  #sigma_eta_t = matrix(1/sqrt(rpg(num = (n-1), h = alphaPlusBeta, z = eta_t)), nc = 1) # Sample
-  #sigma_eta_0 = 1/sqrt(rpg(num = 1, h = 1, z = ht_tilde[1]))                # Sample the inital
   sigma_eta_t = 1/sqrt(pgdraw::pgdraw(alphaPlusBeta, eta_t))
   sigma_eta_0 = 1/sqrt(pgdraw::pgdraw(1, ht_tilde[1]))
 
@@ -528,14 +539,6 @@ t_sampleLogVols = function(h_y, h_prev, h_mu, h_phi, h_phi2, h_sigma_eta_t, h_si
   ystar = log(h_y^2 + yoffset)
 
   # Sample the mixture components
-  #z = sapply(ystar-h_prev, ncind, m_st, sqrt(v_st2), q)
-  #z = sapply(ystar-h_prev, ncind, m_st, sqrt(v_st2), q)
-  # z = c(draw_indicators_generic(ystar-h_prev, rep(0, length(ystar)), length(ystar),
-  #                             q, m_st, sqrt(v_st2), length(q)))
-
-  # Subset mean and variances to the sampled mixture components; (n x p) matrices
-  # m_st_all = m_st[z]
-  # v_st2_all = v_st2[z]
   mixture_component = sample_j_wrap(n,ystar-h_prev)
 
   # Subset mean and variances to the sampled mixture components; (n x p) matrices
@@ -648,14 +651,12 @@ t_sampleLogVolMu = function(h, h_mu, h_phi, h_phi2, h_sigma_eta_t, h_sigma_eta_0
 
   # Sample the precision term(s)
   dhs_mean_prec_j = pgdraw::pgdraw(1, h_mu - h_log_scale)
-  #dhs_mean_prec_j = pgdraw::pgdraw(1, h_mu - h_log_scale)
 
   # Now, form the "y" and "x" terms in the (auto)regression
   y_mu = (h[-1] - (h_phi+h_phi2*h_st[-n])*h[-n])/h_sigma_eta_t;
   x_mu = (1 - h_phi-h_phi2*h_st[-n])/h_sigma_eta_t
 
   # Include the initial sd?
-  #if(!is.null(h_sigma_eta_0)){y_mu = rbind(h[1,]/h_sigma_eta_0, y_mu); x_mu = rbind(1/h_sigma_eta_0, x_mu)}
   y_mu = c(h[1]/h_sigma_eta_0, y_mu);
   x_mu = c(1/h_sigma_eta_0, x_mu)
 
@@ -803,7 +804,6 @@ t_sampleSVparams = function(omega, svParams){
 
   # First, check for numerical issues:
   svInput = omega; #if(all(svInput==0)) {svInput = 10^-8} else svInput = svInput + sd(svInput)/10^8
-  #hsOffset = tcrossprod(rep(1,n), apply(omega, 2, function(x) any(x^2 < 10^-16)*max(10^-8, mad(x)/10^6)))
 
   # Sample the SV parameters:
   svsamp = stochvol::svsample_fast_cpp(svInput,

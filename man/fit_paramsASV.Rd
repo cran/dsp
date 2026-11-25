@@ -2,7 +2,7 @@
 % Please edit documentation in R/ASV.R
 \name{fit_paramsASV}
 \alias{fit_paramsASV}
-\title{Helper function for Sampling parameters for ASV model}
+\title{Helper function for sampling parameters for ASV model}
 \usage{
 fit_paramsASV(data, sParams, evol_error, D)
 }
@@ -26,6 +26,6 @@ a list containing 4 sets of parameters
 }
 }
 \description{
-Helper function for Sampling parameters for ASV model
+Helper function for sampling parameters for ASV model
 }
 \keyword{internal}

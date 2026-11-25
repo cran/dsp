@@ -175,7 +175,7 @@ build_XtX = function(X){
 }
 
 #----------------------------------------------------------------------------
-#' Compute initial Cholesky decomposition for Bayesian Trend Filtering
+#' Compute initial Cholesky decomposition for Bayesian trend filtering
 #'
 #' Computes the Cholesky decomposition for the quadratic term in the (Gaussian) posterior
 #' of the Bayesian Trend Filtering coefficients. The sparsity pattern will not change during the
@@ -198,7 +198,7 @@ initChol_spam = function(nT, D = 1){
   chQht_Matrix0
 }
 #----------------------------------------------------------------------------
-#' Compute initial Cholesky decomposition for TVP Regression
+#' Compute initial Cholesky decomposition for TVP regression
 #'
 #' Computes the Cholesky decomposition for the quadratic term in the (Gaussian) posterior
 #' of the TVP regression coefficients. The sparsity pattern will not change during the
@@ -231,11 +231,8 @@ initCholReg_spam = function(obs_sigma_t2, evol_sigma_t2, XtX, D = 1){
     # Quadratic term:
     Qevol = Matrix::bandSparse(nT*p, k = c(0,p), diagonals= list(Q_diag, Q_off), symmetric = TRUE)
 
-    # For checking via direct computation:
-    # H1 = bandSparse(nT, k = c(0,-1), diag = list(rep(1, nT), rep(-1, nT)), symmetric = FALSE)
-    # IH = kronecker(as.matrix(H1), diag(p));
-    # Q0 = t(IH)%*%diag(as.numeric(1/matrix(t(evol_sigma_t2))))%*%(IH)
-    # print(sum((Qevol - Q0)^2))
+    # Equals t(IH) %*% diag(1/c(t(evol_sigma_t2))) %*% IH, where
+    # IH = kronecker(H1, diag(p)) and H1 is the order-1 difference matrix.
 
   } else {
     if(D == 2){
@@ -263,11 +260,8 @@ initCholReg_spam = function(obs_sigma_t2, evol_sigma_t2, XtX, D = 1){
       # Quadratic term:
       Qevol = Matrix::bandSparse(nT*p, k = c(0, p, 2*p), diagonals= list(Q_diag, Q_off_1, Q_off_2), symmetric = TRUE)
 
-      # For checking via direct computation:
-      # H2 = bandSparse(nT, k = c(0,-1, -2), diag = list(rep(1, nT), c(0, rep(-2, nT-1)), rep(1, nT)), symmetric = FALSE)
-      # IH = kronecker(as.matrix(H2), diag(p));
-      # Q0 = t(IH)%*%diag(as.numeric(1/matrix(t(evol_sigma_t2))))%*%(IH)
-      # print(sum((Qevol - Q0)^2))
+      # Equals t(IH) %*% diag(1/c(t(evol_sigma_t2))) %*% IH, where
+      # IH = kronecker(H2, diag(p)) and H2 is the order-2 difference matrix.
 
     } else stop('Requires D=1 or D=2')
   }
@@ -304,10 +298,6 @@ build_Q = function(obs_sigma_t2, evol_sigma_t2, D = 1){
 
   nT = length(evol_sigma_t2)
 
-  # For reference: first and second order difference matrices (not needed below)
-  #H1 = bandSparse(nT, k = c(0,-1), diag = list(rep(1, nT), rep(-1, nT)), symmetric = FALSE)
-  #H2 = bandSparse(nT, k = c(0,-1, -2), diag = list(rep(1, nT), c(0, rep(-2, nT-1)), rep(1, nT)), symmetric = FALSE)
-
   # Quadratic term: can construct directly for D = 1 or D = 2 using [diag(1/obs_sigma_t2, nT) + (t(HD)%*%diag(1/evol_sigma_t2, nT))%*%HD]
   if(D == 1){
     # D = 1 case:
@@ -326,7 +316,7 @@ build_Q = function(obs_sigma_t2, evol_sigma_t2, D = 1){
   Q
 }
 #----------------------------------------------------------------------------
-#' Compute Non-Zeros (Signals)
+#' Compute non-zeros (signals)
 #'
 #' Estimate the location of non-zeros (signals) implied by
 #' horseshoe-type thresholding.
@@ -392,43 +382,73 @@ ncind = function(y,mu,sig,q){
 
 
 #####################################################################################################
-#' Compute Simultaneous Credible Bands
+#' Standardized maximum deviation of posterior draws
 #'
-#' Compute (1-alpha)\% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
+#' Shared computation for [credBands()] and [simBaS()]: the pointwise posterior
+#' mean and standard deviation, and for each draw the maximum over the domain
+#' of the standardized absolute deviation from the mean.
 #'
 #' @param sampFuns \code{Nsims x m} matrix of \code{Nsims} MCMC samples and \code{m} points along the curve
-#' @param alpha confidence level
 #'
-#' @return \code{m x 2} matrix of credible bands; the first column is the lower band, the second is the upper band
+#' @return A list with components \code{Efx} and \code{SDfx}, vectors of
+#'   length \code{m}, \code{Maxfx}, a vector of length \code{Nsims}, and
+#'   \code{varies}, a logical vector of length \code{m}.
 #'
-#' @note The input needs not be curves: the simultaneous credible "bands" may be computed
-#' for vectors. The resulting credible intervals will provide joint coverage at the (1-alpha)%
-#' level across all components of the vector.
+#' @note Points with no posterior variation, such as fixed initial values,
+#' have a standardized deviation of 0/0. They are excluded from the maximum,
+#' so that they do not make every \code{Maxfx} undefined.
 #' @keywords internal
 
-credBands = function(sampFuns, alpha = .05){
+band_stats = function(sampFuns){
 
-  N = nrow(sampFuns); m = ncol(sampFuns)
+  N = nrow(sampFuns)
 
   # Compute pointwise mean and SD of f(x):
   Efx = colMeans(sampFuns); SDfx = apply(sampFuns, 2, sd)
 
-  # Compute standardized absolute deviation:
-  Standfx = abs(sampFuns - tcrossprod(rep(1, N), Efx))/tcrossprod(rep(1, N), SDfx)
+  varies = SDfx > 0
+  if(!any(varies)) stop("The draws have no posterior variation.", call. = FALSE)
+
+  # Compute standardized absolute deviation at the varying points:
+  Standfx = abs(sampFuns[, varies, drop = FALSE] - tcrossprod(rep(1, N), Efx[varies]))/
+    tcrossprod(rep(1, N), SDfx[varies])
 
   # And the maximum:
-  Maxfx = apply(Standfx, 1, max)
-
-  # Compute the (1-alpha) sample quantile:
-  Malpha = quantile(Maxfx, 1-alpha)
-
-  # Finally, store the bands in a (m x 2) matrix of (lower, upper)
-  cbind(Efx - Malpha*SDfx, Efx + Malpha*SDfx)
+  list(Efx = Efx, SDfx = SDfx, Maxfx = apply(Standfx, 1, max), varies = varies)
 }
 #####################################################################################################
-#' Compute Simultaneous Band Scores (SimBaS)
+#' Compute simultaneous credible bands
 #'
-#' Compute simultaneous band scores (SimBaS) from Meyer et al. (2015, Biometrics).
+#' Compute (1-alpha)\% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
+#' (Journal of Computational and Graphical Statistics, 16(2), 265--288,
+#' \doi{10.1198/106186007X208768}).
+#'
+#' @param sampFuns \code{Nsims x m} matrix of \code{Nsims} MCMC samples and \code{m} points along the curve
+#' @param alpha one minus the credibility level of the bands
+#'
+#' @return \code{m x 2} matrix of credible bands; the first column is the lower band, the second is the upper band
+#'
+#' @note The input needs not be curves: the simultaneous credible "bands" may be computed
+#' for vectors. The result is a joint credible band at credibility level 1 - alpha
+#' across all components of the vector. At a point with no posterior
+#' variation, both bands equal the constant value.
+#' @keywords internal
+
+credBands = function(sampFuns, alpha = .05){
+
+  bs = band_stats(sampFuns)
+
+  # Compute the (1-alpha) sample quantile:
+  Malpha = quantile(bs$Maxfx, 1-alpha, names = FALSE)
+
+  # Finally, store the bands in a (m x 2) matrix of (lower, upper)
+  cbind(bs$Efx - Malpha*bs$SDfx, bs$Efx + Malpha*bs$SDfx)
+}
+#####################################################################################################
+#' Compute simultaneous band scores (SimBaS)
+#'
+#' Compute simultaneous band scores (SimBaS) from Meyer et al. (2015, Biometrics,
+#' 71(3), 563--574, \doi{10.1111/biom.12299}).
 #' SimBaS uses MC(MC) simulations of a function of interest to compute the minimum
 #' alpha such that the joint credible bands at the alpha level do not include zero.
 #' This quantity is computed for each grid point (or observation point) in the domain
@@ -436,7 +456,7 @@ credBands = function(sampFuns, alpha = .05){
 #'
 #' @param sampFuns \code{Nsims x m} matrix of \code{Nsims} MCMC samples and \code{m} points along the curve
 #'
-#' @return \code{m x 1} vector of simBaS
+#' @return \code{m x 1} vector of simBaS, \code{NA} at points with no posterior variation
 #'
 #' @note The input needs not be curves: the simBaS may be computed
 #' for vectors to achieve a multiplicity adjustment.
@@ -448,22 +468,14 @@ credBands = function(sampFuns, alpha = .05){
 
 simBaS = function(sampFuns){
 
-  N = nrow(sampFuns); m = ncol(sampFuns)
+  bs = band_stats(sampFuns)
 
-  # Compute pointwise mean and SD of f(x):
-  Efx = colMeans(sampFuns); SDfx = apply(sampFuns, 2, sd)
-
-  # Compute standardized absolute deviation:
-  Standfx = abs(sampFuns - tcrossprod(rep(1, N), Efx))/tcrossprod(rep(1, N), SDfx)
-
-  # And the maximum:
-  Maxfx = apply(Standfx, 1, max)
-
-  # And now compute the SimBaS scores:
-  PsimBaS_t = rowMeans(sapply(Maxfx, function(x) abs(Efx)/SDfx <= x))
-
-  # Alternatively, using a loop:
-  #PsimBaS_t = numeric(nT); for(t in 1:m) PsimBaS_t[t] = mean((abs(Efx)/SDfx)[t] <= Maxfx)
+  # PsimBaS_t[t] = mean(abs(Efx[t])/SDfx[t] <= Maxfx), the proportion of draws
+  # whose maximum is at least the standardized mean. With Maxfx sorted, the
+  # number of draws below a value is findInterval(value, ., left.open = TRUE).
+  z = abs(bs$Efx[bs$varies])/bs$SDfx[bs$varies]
+  PsimBaS_t = rep(NA_real_, length(bs$Efx))
+  PsimBaS_t[bs$varies] = 1 - findInterval(z, sort(bs$Maxfx), left.open = TRUE)/length(bs$Maxfx)
 
   PsimBaS_t
 }
@@ -486,7 +498,7 @@ logit = function(x) {
 invlogit = function(x) exp(x - log(1+exp(x))) # exp(x)/(1+exp(x))
 
 #----------------------------------------------------------------------------
-#' Univariate Slice Sampler from Neal (2008)
+#' Univariate slice sampler from Neal (2008)
 #'
 #' Compute a draw from a univariate distribution using the code provided by
 #' Radford M. Neal. The documentation below is also reproduced from Neal (2008).
@@ -498,6 +510,8 @@ invlogit = function(x) exp(x - log(1+exp(x))) # exp(x)/(1+exp(x))
 #' @param lower Lower bound on support of the distribution (default -Inf)
 #' @param upper Upper bound on support of the distribution (default +Inf)
 #' @param gx0   Value of g(x0), if known (default is not known)
+#' @param max_iter Maximum number of log-density evaluations allowed in each of
+#' the stepping-out and shrinkage phases (default 1e5). Exceeding it is an error.
 #'
 #' @return  The point sampled, with its log density attached as an attribute.
 #'
@@ -505,8 +519,14 @@ invlogit = function(x) exp(x - log(1+exp(x))) # exp(x)/(1+exp(x))
 #' of the distribution.  If a lower and/or upper bound is specified for the
 #' support, the log density function will not be called outside such limits.
 #'
+#' The log density at the initial point must be finite. If it is not, or if
+#' \code{max_iter} is exceeded, the function stops with an error instead of
+#' looping without end. These checks do not change the draws whenever the
+#' sampler terminates normally.
+#'
 #' @keywords internal
-uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
+uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL,
+                       max_iter=1e5)
 {
   # Check the validity of the arguments.
 
@@ -522,14 +542,20 @@ uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
     stop ("Invalid slice sampling argument")
   }
 
-  # Keep track of the number of calls made to this function.
-  #uni.slice.calls <<- uni.slice.calls + 1
-
   # Find the log density at the initial point, if not already known.
 
   if (is.null(gx0))
   { #uni.slice.evals <<- uni.slice.evals + 1
   gx0 <- g(x0)
+  }
+
+  # A non-finite log density at x0 (for example, a scale parameter that has
+  # collapsed so that the log density underflows to -Inf) makes the slice
+  # level non-finite, and the stepping-out loops below would never end.
+  if (!is.finite(gx0))
+  { stop(sprintf(paste0("Slice sampler: the log density at the current value ",
+                        "(%g) is not finite (%s); the chain has degenerated."),
+                 x0, format(gx0)), call. = FALSE)
   }
 
   # Determine the slice level, in log terms.
@@ -547,18 +573,22 @@ uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
 
   if (is.infinite(m))  # no limit on number of steps
   {
+    steps <- 0
     repeat
     { if (L<=lower) break
-      #uni.slice.evals <<- uni.slice.evals + 1
       if (g(L)<=logy) break
       L <- L - w
+      steps <- steps + 1
+      if (steps>max_iter) .slice_limit("stepping out", x0, max_iter)
     }
 
+    steps <- 0
     repeat
     { if (R>=upper) break
-      #uni.slice.evals <<- uni.slice.evals + 1
       if (g(R)<=logy) break
       R <- R + w
+      steps <- steps + 1
+      if (steps>max_iter) .slice_limit("stepping out", x0, max_iter)
     }
   }
 
@@ -569,7 +599,6 @@ uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
 
     while (J>0)
     { if (L<=lower) break
-      #uni.slice.evals <<- uni.slice.evals + 1
       if (g(L)<=logy) break
       L <- L - w
       J <- J - 1
@@ -577,7 +606,6 @@ uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
 
     while (K>0)
     { if (R>=upper) break
-      #uni.slice.evals <<- uni.slice.evals + 1
       if (g(R)<=logy) break
       R <- R + w
       K <- K - 1
@@ -595,11 +623,13 @@ uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
 
   # Sample from the interval, shrinking it on each rejection.
 
+  steps <- 0
   repeat
   {
+    steps <- steps + 1
+    if (steps>max_iter) .slice_limit("shrinkage", x0, max_iter)
     x1 <- runif(1,L,R)
 
-    #uni.slice.evals <<- uni.slice.evals + 1
     gx1 <- g(x1)
 
     if (gx1>=logy) break
@@ -617,6 +647,12 @@ uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
   attr(x1,"log.density") <- gx1
   return (x1)
 
+}
+
+.slice_limit <- function(phase, x0, max_iter) {
+  stop(sprintf(paste0("Slice sampler: %s exceeded %g iterations from the ",
+                      "current value %g; the chain has degenerated."),
+               phase, max_iter, x0), call. = FALSE)
 }
 
 #----------------------------------------------------------------------------
@@ -666,7 +702,7 @@ getARpXmat = function(y, p = 1, include_intercept = FALSE){
 }
 
 #----------------------------------------------------------------------------
-#' Wrapper function for C++ call for sample mat, check pre-conditions to prevent crash
+#' Check inputs and call the C++ band-sparse Gaussian sampler
 #'
 #' @param row_ind list of the row indices to fill in the bandsparse matrix
 #' @param col_ind list of the columns indices to fill in the bandsparse matrix

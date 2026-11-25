@@ -2,48 +2,68 @@
 % Please edit documentation in R/predict.R
 \name{predict.dsp}
 \alias{predict.dsp}
-\title{Predict changepoints from the output of ABCO}
+\title{Posterior predictive summaries}
 \usage{
-\method{predict}{dsp}(object, cp_thres = 0.5, cp_prop = FALSE, ...)
+\method{predict}{dsp}(object, cp_thres = deprecated(), cp_prop = deprecated(), ...)
 }
 \arguments{
 \item{object}{object of class dsp from \code{\link[=dsp_fit]{dsp_fit()}}}
 
-\item{cp_thres}{(default 0.5) cutoff proportion for percentage of posterior
-samples exceeding the threshold needed to label a changepoint}
+\item{cp_thres, cp_prop}{Deprecated. Changepoint
+detection has moved to \code{\link[=changepoints]{changepoints()}}. If either argument is supplied
+for a changepoint model, \code{predict()} warns and returns the detected
+changepoints as in earlier versions; see Value.}
 
-\item{cp_prop}{(default FALSE) logical flag determining if the posterior proportions of threshold exceedance is to be returned.}
-
-\item{...}{currently unused}
+\item{...}{\code{probs} may be supplied to choose the quantiles returned by
+\code{\link[=fitted.dsp]{fitted.dsp()}}.}
 }
 \value{
-If \code{cp_prop = FALSE}, an integer vector containing the indices of detected changepoints in the observed data.
-If no changepoints are detected, an empty integer vector is returned.
+A matrix with one row per time point of the fitted series, containing the
+posterior predictive mean and quantiles. The default quantiles are 2.5\%,
+25\%, 50\%, 75\%, and 97.5\%.
 
-If cp_prop = TRUE, a list containing:
-- 'cp_t':  an integer vector containing the indices of detected changepoints.
-- 'cp_prop': a numeric vector of length \code{T - D} containing the pointwise posterior proportions of threshold exceedance.
+If the deprecated \code{cp_thres} or \code{cp_prop} is supplied for a changepoint
+model, the return value of earlier versions: if \code{cp_prop = FALSE}, an
+integer vector of the indices of detected changepoints; if
+\code{cp_prop = TRUE}, a list with these indices in \code{cp_t} and, in \code{cp_prop},
+the posterior probabilities of threshold exceedance at all \code{T} time
+points, with \code{NA} at the first \code{D}.
 }
 \description{
-Predict changepoints from the output of ABCO
+Posterior predictive summaries
 }
 \details{
-The changepoint model uses a thresholding mechanism with a latent indicator variable.
-This function calculates the proportion of samples where the increment exceeds the threshold.
+For every model, this method returns \code{fitted(object, pars = "ypred", ...)}:
+pointwise summaries of the posterior predictive distribution of a new
+observation at each fitted time point. Its quantiles give prediction
+intervals, which include the observation noise. For summaries of the
+conditional mean \eqn{\mu_t} instead, use \code{fitted(object, pars = "mu")}.
+
+Missing values in \code{y} are drawn from the posterior predictive distribution
+during fitting, so \code{predict()} imputes them. In particular, padding \code{y}
+with \code{NA} at the end before fitting gives forecasts at those time points.
+For regression, the covariates must be supplied in \code{X} for every time
+point, including those with missing \code{y}; prediction at new covariate
+values without refitting is not supported.
+
+Changepoints of a changepoint model are returned by \code{\link[=changepoints]{changepoints()}}.
 }
 \examples{
 set.seed(200)
 signal = c(rep(0, 50), rep(10, 50))
-noise = rep(1, 100)
-noise_var = rep(1, 100)
-for (k in 2:100){
-  noise_var[k] = exp(0.9*log(noise_var[k-1]) + rnorm(1, 0, 0.5))
-  noise[k] = rnorm(1, 0, sqrt(noise_var[k])) }
+y = signal + rnorm(100)
 
-y = signal + noise
-model_spec = dsp_spec(family = "gaussian", model = "changepoint",
-                      D = 1, useAnom = TRUE)
-mcmc_output = dsp_fit(y, model_spec = model_spec, nsave = 200, nburn = 200)
-predict(mcmc_output)
+# Withhold the last five observations to forecast them
+y_f <- y
+y_f[96:100] <- NA
+spec_smooth <- dsp_spec(family = "gaussian", model = "smoothing", D = 1)
+fit_smooth <- dsp_fit(y_f, spec_smooth, nsave = 200, nburn = 200)
+tail(predict(fit_smooth, probs = c(0.025, 0.975)), 5)
 
+# The conditional mean, without observation noise
+tail(fitted(fit_smooth, pars = "mu", probs = c(0.025, 0.975)), 5)
+
+}
+\seealso{
+\code{\link[=fitted.dsp]{fitted.dsp()}}, \code{\link[=changepoints]{changepoints()}}
 }

@@ -1,4 +1,4 @@
-#' MCMC Sampler for Bayesian Trend Filtering
+#' MCMC sampler for Bayesian trend filtering
 #'
 #' Run the MCMC for Bayesian trend filtering with a penalty on zeroth (D = 0),
 #' first (D = 1), or second (D = 2) differences of the conditional expectation.
@@ -122,9 +122,6 @@ btf = function(y, evol_error = 'DHS', D = 2, obsSV = "const",
     sigma_et = exp(sParams$s_mu/2)
   }
 
-  # For HS MCMC comparisons:
-  # evolParams$dhs_phi = 0
-
   # Store the MCMC output in separate arrays (better computation times)
   mcmc_output = vector('list', length(mcmc_params)); names(mcmc_output) = mcmc_params
   if(!is.na(match('mu', mcmc_params)) || computeDIC) post_mu = array(NA, c(nsave, nT))
@@ -133,7 +130,6 @@ btf = function(y, evol_error = 'DHS', D = 2, obsSV = "const",
   if(!is.na(match('evol_sigma_t2', mcmc_params))) post_evol_sigma_t2 = array(NA, c(nsave, nT))
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi = numeric(nsave)
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean = numeric(nsave)
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h = array(NA,c(nsave,nT))
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth = array(NA,c(nsave,nT))
   post_loglike = numeric(nsave)
 
@@ -233,7 +229,6 @@ btf = function(y, evol_error = 'DHS', D = 2, obsSV = "const",
         if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi[isave] = evolParams$dhs_phi
         if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean[isave] = evolParams$dhs_mean
         post_loglike[isave] = sum(dnorm(y, mean = mu, sd = sigma_et, log = TRUE))
-        # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV")  post_h[isave,] = sParams$s_mu
         if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth[isave,] = sParams$s_mu_sm
         # And reset the skip counter:
         skipcount = 0
@@ -243,11 +238,11 @@ btf = function(y, evol_error = 'DHS', D = 2, obsSV = "const",
 
   if(!is.na(match('mu', mcmc_params))) mcmc_output$mu = post_mu
   if(!is.na(match('ypred', mcmc_params))) mcmc_output$ypred = post_ypred
-  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2
+  # A constant variance is one draw per iteration, not one per time point
+  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = if(obsSV == "const") post_obs_sigma_t2[, 1] else post_obs_sigma_t2
   if(!is.na(match('evol_sigma_t2', mcmc_params))) mcmc_output$evol_sigma_t2 = post_evol_sigma_t2
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_phi = post_dhs_phi
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_mean = post_dhs_mean
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") mcmc_output$h = post_h
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) mcmc_output$h_smooth = post_h_smooth
   # Also include the log-likelihood:
   mcmc_output$loglike = post_loglike
@@ -273,7 +268,7 @@ btf = function(y, evol_error = 'DHS', D = 2, obsSV = "const",
 
   return (mcmc_output);
 }
-#' MCMC Sampler for Bayesian Trend Filtering: D = 0
+#' MCMC sampler for Bayesian trend filtering: D = 0
 #'
 #' Run the MCMC for Bayesian trend filtering with a penalty on the conditional expectation.
 #' The penalty is determined by the prior on the evolution errors, which include:
@@ -372,7 +367,6 @@ btf0 = function(y, evol_error = 'DHS', obsSV = "const",
   if(!is.na(match('evol_sigma_t2', mcmc_params))) post_evol_sigma_t2 = array(NA, c(nsave, nT))
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi = numeric(nsave)
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean = numeric(nsave)
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h = array(NA,c(nsave,nT))
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth = array(NA,c(nsave,nT))
   post_loglike = numeric(nsave)
 
@@ -465,7 +459,6 @@ btf0 = function(y, evol_error = 'DHS', obsSV = "const",
         if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi[isave] = evolParams$dhs_phi
         if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean[isave] = evolParams$dhs_mean
         post_loglike[isave] = sum(dnorm(y, mean = mu, sd = sigma_et, log = TRUE))
-        # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h[isave,] = sParams$s_mu
         if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth[isave,] = sParams$s_mu_sm
         # And reset the skip counter:
         skipcount = 0
@@ -475,11 +468,11 @@ btf0 = function(y, evol_error = 'DHS', obsSV = "const",
 
   if(!is.na(match('mu', mcmc_params))) mcmc_output$mu = post_mu
   if(!is.na(match('ypred', mcmc_params))) mcmc_output$ypred = post_ypred
-  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2
+  # A constant variance is one draw per iteration, not one per time point
+  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = if(obsSV == "const") post_obs_sigma_t2[, 1] else post_obs_sigma_t2
   if(!is.na(match('evol_sigma_t2', mcmc_params))) mcmc_output$evol_sigma_t2 = post_evol_sigma_t2
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_phi = post_dhs_phi
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_mean = post_dhs_mean
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") mcmc_output$h = post_h
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) mcmc_output$h_smooth = post_h_smooth
 
   # Also include the log-likelihood:
@@ -618,8 +611,6 @@ btf_sparse = function(y, evol_error = 'DHS', zero_error = 'DHS', D = 2, obsSV = 
   # Initialize the shrink-to-zero parameters:
   zeroParams = initEvolParams(omega = mu, evol_error = zero_error)
 
-  # For HS MCMC comparisons:
-  # evolParams$dhs_phi = 0
   if(obsSV == "SV") {svParams = initSV(y - mu); sigma_et = svParams$sigma_wt}
   else if(obsSV == "ASV"){
     if(nugget_asv){
@@ -640,7 +631,6 @@ btf_sparse = function(y, evol_error = 'DHS', zero_error = 'DHS', D = 2, obsSV = 
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean = numeric(nsave)
   if(!is.na(match('dhs_phi_zero', mcmc_params)) && zero_error == "DHS") post_dhs_phi_zero = numeric(nsave)
   if(!is.na(match('dhs_mean_zero', mcmc_params)) && zero_error == "DHS") post_dhs_mean_zero = numeric(nsave)
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h = array(NA,c(nsave,nT))
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth = array(NA,c(nsave,nT))
   post_loglike = numeric(nsave)
 
@@ -691,7 +681,6 @@ btf_sparse = function(y, evol_error = 'DHS', zero_error = 'DHS', D = 2, obsSV = 
       stop('obsSV has to be one of const, SV, or ASV')
     }
     # Sample the states:
-    #mu = sampleBTF(y, obs_sigma_t2 = sigma_et^2, evol_sigma_t2 = c(evolParams0$sigma_w0^2, evolParams$sigma_wt^2), D = D, chol0 = chol0)
     mu = sampleBTF_sparse(y,
                           obs_sigma_t2 = sigma_et^2,
                           evol_sigma_t2 = c(evolParams0$sigma_w0^2, evolParams$sigma_wt^2),
@@ -733,7 +722,6 @@ btf_sparse = function(y, evol_error = 'DHS', zero_error = 'DHS', D = 2, obsSV = 
         if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean[isave] = evolParams$dhs_mean
         if(!is.na(match('dhs_phi_zero', mcmc_params)) && zero_error == "DHS") post_dhs_phi_zero[isave] = zeroParams$dhs_phi
         if(!is.na(match('dhs_mean_zero', mcmc_params)) && zero_error == "DHS") post_dhs_mean_zero[isave] = zeroParams$dhs_mean
-        # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h[isave,] = sParams$s_mu
         if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth[isave,] = sParams$s_mu_sm
         post_loglike[isave] = sum(dnorm(y, mean = mu, sd = sigma_et, log = TRUE))
 
@@ -745,14 +733,14 @@ btf_sparse = function(y, evol_error = 'DHS', zero_error = 'DHS', D = 2, obsSV = 
 
   if(!is.na(match('mu', mcmc_params))) mcmc_output$mu = post_mu
   if(!is.na(match('ypred', mcmc_params))) mcmc_output$ypred = post_ypred
-  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2
+  # A constant variance is one draw per iteration, not one per time point
+  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = if(obsSV == "const") post_obs_sigma_t2[, 1] else post_obs_sigma_t2
   if(!is.na(match('evol_sigma_t2', mcmc_params))) mcmc_output$evol_sigma_t2 = post_evol_sigma_t2
   if(!is.na(match('zero_sigma_t2', mcmc_params))) mcmc_output$zero_sigma_t2 = post_zero_sigma_t2
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_phi = post_dhs_phi
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_mean = post_dhs_mean
   if(!is.na(match('dhs_phi_zero', mcmc_params)) && zero_error == "DHS") mcmc_output$dhs_phi_zero = post_dhs_phi_zero
   if(!is.na(match('dhs_mean_zero', mcmc_params)) && zero_error == "DHS") mcmc_output$dhs_mean_zero = post_dhs_mean_zero
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") mcmc_output$h = post_h
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) mcmc_output$h_smooth = post_h_smooth
   # Also include the log-likelihood:
   mcmc_output$loglike = post_loglike
@@ -777,7 +765,7 @@ btf_sparse = function(y, evol_error = 'DHS', zero_error = 'DHS', D = 2, obsSV = 
   return (mcmc_output);
 }
 
-#' MCMC Sampler for Bayesian Trend Filtering: Regression
+#' MCMC sampler for Bayesian trend filtering: regression
 #'
 #' Run the MCMC for Bayesian trend filtering regression with a penalty on
 #' first (D=1) or second (D=2) differences of each dynamic regression coefficient.
@@ -916,7 +904,6 @@ btf_reg = function(y, X = NULL, evol_error = 'DHS', D = 1, obsSV = "const",
   if(!is.na(match('evol_sigma_t2', mcmc_params))) post_evol_sigma_t2 = array(NA, c(nsave, nT, p))
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi = array(NA, c(nsave, p))
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean = array(NA, c(nsave, p))
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h = array(NA,c(nsave,nT))
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth = array(NA,c(nsave,nT))
   post_loglike = numeric(nsave)
 
@@ -983,7 +970,6 @@ btf_reg = function(y, X = NULL, evol_error = 'DHS', D = 1, obsSV = "const",
           -(nT+2)*log(x) - 0.5*sum((y - mu)^2, na.rm=TRUE)/x^2 - log(1 + (sqrt(nT*p)*exp(evolParams$dhs_mean0/2)/x)^2)
         }, lower = 0, upper = Inf)[1]
       }
-      #if(evol_error == 'HS') sigma_e = 1/sqrt(rgamma(n = 1, shape = nT/2 + length(evolParams$xiLambda), rate = sum((y - mu)^2, na.rm=TRUE)/2 + nT*p*sum(evolParams$xiLambda)))
       if(evol_error == 'HS') sigma_e = 1/sqrt(rgamma(n = 1, shape = nT/2, rate = sum((y - mu)^2, na.rm=TRUE)/2))
       if(evol_error == 'BL') sigma_e = 1/sqrt(rgamma(n = 1, shape = nT/2 + length(evolParams$tau_j)/2, rate = sum((y - mu)^2, na.rm=TRUE)/2 + nT*p*sum((omega/evolParams$tau_j)^2)/2))
       if((evol_error == 'NIG') || (evol_error == 'SV')) sigma_e = 1/sqrt(rgamma(n = 1, shape = nT/2, rate = sum((y - mu)^2, na.rm=TRUE)/2))
@@ -1026,7 +1012,6 @@ btf_reg = function(y, X = NULL, evol_error = 'DHS', D = 1, obsSV = "const",
         }
         if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") post_dhs_phi[isave,] = evolParams$dhs_phi
         if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") post_dhs_mean[isave,] = evolParams$dhs_mean
-        # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") post_h[isave,] = sParams$s_mu
         if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) post_h_smooth[isave,] = sParams$s_mu_sm
         post_loglike[isave] = sum(dnorm(y, mean = mu, sd = sigma_et, log = TRUE))
 
@@ -1039,11 +1024,11 @@ btf_reg = function(y, X = NULL, evol_error = 'DHS', D = 1, obsSV = "const",
   if(!is.na(match('mu', mcmc_params))) mcmc_output$mu = post_mu
   if(!is.na(match('ypred', mcmc_params))) mcmc_output$ypred = post_ypred
   if(!is.na(match('beta', mcmc_params))) mcmc_output$beta = post_beta
-  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2
+  # A constant variance is one draw per iteration, not one per time point
+  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = if(obsSV == "const") post_obs_sigma_t2[, 1] else post_obs_sigma_t2
   if(!is.na(match('evol_sigma_t2', mcmc_params))) mcmc_output$evol_sigma_t2 = post_evol_sigma_t2
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_phi = post_dhs_phi
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_mean = post_dhs_mean
-  # if(!is.na(match('h', mcmc_params)) && obsSV == "ASV") mcmc_output$h = post_h
   if(!is.na(match('h_smooth', mcmc_params)) && obsSV == "ASV" && nugget_asv) mcmc_output$h_smooth = post_h_smooth
 
   # Also include the log-likelihood:
@@ -1070,7 +1055,7 @@ btf_reg = function(y, X = NULL, evol_error = 'DHS', D = 1, obsSV = "const",
   return (mcmc_output);
 }
 
-#' MCMC Sampler for B-spline Bayesian Trend Filtering
+#' MCMC sampler for B-spline Bayesian trend filtering
 #'
 #' Run the MCMC for B-spline fitting with a Bayesian trend filtering model on the
 #' coefficients, i.e., a penalty on zeroth (D=0), first (D=1), or second (D=2)
@@ -1290,7 +1275,8 @@ btf_bspline = function(y, times = NULL, num_knots = NULL, evol_error = 'DHS', D 
   if(!is.na(match('mu', mcmc_params))) mcmc_output$mu = post_mu
   if(!is.na(match('ypred', mcmc_params))) mcmc_output$ypred = post_ypred
   if(!is.na(match('beta', mcmc_params))) mcmc_output$beta = post_beta
-  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2
+  # The variance is constant, so store one draw per iteration
+  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2[, 1]
   if(!is.na(match('evol_sigma_t2', mcmc_params))) mcmc_output$evol_sigma_t2 = post_evol_sigma_t2
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_phi = post_dhs_phi
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_mean = post_dhs_mean
@@ -1320,7 +1306,7 @@ btf_bspline = function(y, times = NULL, num_knots = NULL, evol_error = 'DHS', D 
 }
 
 #----------------------------------------------------------------------------
-#' MCMC Sampler for B-spline Bayesian Trend Filtering: D = 0
+#' MCMC sampler for B-spline Bayesian trend filtering: D = 0
 #'
 #' Run the MCMC for B-spline fitting with a penalty the B-spline basis coefficients.
 #' The penalty is determined by the prior on the evolution errors, which include:
@@ -1509,7 +1495,8 @@ btf_bspline0 = function(y, times = NULL, num_knots = NULL, evol_error = 'DHS',
   if(!is.na(match('mu', mcmc_params))) mcmc_output$mu = post_mu
   if(!is.na(match('ypred', mcmc_params))) mcmc_output$ypred = post_ypred
   if(!is.na(match('beta', mcmc_params))) mcmc_output$beta = post_beta
-  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2
+  # The variance is constant, so store one draw per iteration
+  if(!is.na(match('obs_sigma_t2', mcmc_params))) mcmc_output$obs_sigma_t2 = post_obs_sigma_t2[, 1]
   if(!is.na(match('evol_sigma_t2', mcmc_params))) mcmc_output$evol_sigma_t2 = post_evol_sigma_t2
   if(!is.na(match('dhs_phi', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_phi = post_dhs_phi
   if(!is.na(match('dhs_mean', mcmc_params)) && evol_error == "DHS") mcmc_output$dhs_mean = post_dhs_mean

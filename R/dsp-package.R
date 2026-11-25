@@ -1,3 +1,4 @@
+#' @title dsp: Dynamic shrinkage process and change point detection
 #' @keywords internal
 "_PACKAGE"
 
@@ -21,14 +22,13 @@
 ## usethis namespace: end
 NULL
 
-# Internal package state. Counts the state draws in which the precision matrix
-# was too ill-conditioned to factorize and sampleBTF() fell back to flooring the
-# evolution variances. dsp_fit() resets this before a fit and reports the total
-# afterwards.
+# Internal count of successful square-root recoveries across the six Gaussian
+# state/coefficient samplers. dsp_fit() resets it before each fit. Recovery
+# never floors variances or repairs the precision matrix.
 .dsp_state <- new.env(parent = emptyenv())
-.dsp_state$n_illcond <- 0L
+.dsp_state$n_sqrt <- 0L
 
-#' Dynamic Shrinkage Process (dsp) Object
+#' Dynamic shrinkage process (dsp) object
 #'
 #' Check whether an object is a fitted \code{dsp} model.
 #'
@@ -40,8 +40,26 @@ NULL
 #' effective number of parameters; \code{mcpar}, the number of saved draws,
 #' the burn-in and the thinning interval; and \code{model_spec}, the
 #' \code{dsp_spec} object describing the fitted model.
+#' The \code{y} component contains the original observations, including missing values.
 #'
-#' @seealso [as.mcmc.dsp()], [summary.dsp()]
+#' The accessor functions [par_names()], [fitted.dsp()], [DIC()],
+#' [get_spec()] and [nobs.dsp()] extract these components without referring
+#' to the structure of the object.
+#'
+#' \code{coef()} returns the posterior means of the regression coefficients for
+#' \code{model = "regression"} or the basis coefficients for \code{model = "bspline"}.
+#' \code{residuals()} subtracts the posterior mean of \eqn{\mu_t} from \eqn{y_t}.
+#' [credible_intervals()] returns pointwise credible intervals for a stored
+#' parameter, and [credible_bands()] simultaneous credible bands.
+#' \code{logLik()} returns the posterior mean log-likelihood. Set
+#' \code{summary = "draws"} to return the value at each saved iteration.
+#' \code{deviance()} returns the posterior mean deviance, the goodness-of-fit
+#' term of \code{DIC()}.
+#' \code{predict()} returns posterior predictive summaries, the same as
+#' \code{fitted(object, pars = "ypred")}, for every model. For changepoint models, \code{changepoints()} returns the
+#' detected changepoints and their posterior probabilities as a data frame.
+#'
+#' @seealso [dsp-accessors], [as.mcmc.dsp()], [summary.dsp()]
 #'
 #' @param object any \R object
 #' @return Logical, whether \code{object} inherits from class \code{dsp}.

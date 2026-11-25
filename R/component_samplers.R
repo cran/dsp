@@ -29,101 +29,57 @@ sampleBTF = function(y, obs_sigma_t2, evol_sigma_t2, D = 1, loc_obs = NULL, chol
 
   nT = length(y)
 
-  # Conditioning of the precision matrix.
-  #
-  # DHS/HS priors shrink the evolution variances toward zero. The precision
-  # matrix is built from 1/evol_sigma_t2, so an underflowed entry produces an
-  # extreme diagonal: 1e-13 against a maximum of 1e3 gives a condition number of
-  # roughly 1e16, which exceeds double precision, and the Cholesky in
-  # sample_mat_c fails to factorize.
-  #
-  # The variances are used as supplied here. The floor is applied only after a
-  # factorization fails, by the pmax() call in the recovery loop in the loc_obs
-  # branch below, and only on the retry attempts. Flooring every draw up front
-  # is unsuitable: on the sunspot ASV/DHS fit the min/max ratio has median
-  # 3.0e-12, so a 1e-12 floor binds on 32.5% of draws and shifts the posterior.
-
-  # Linear term:
   linht = y/obs_sigma_t2
 
-  # Quadratic terms and solutions are computed differently, depending on D:
-
   if(D == 0){
-    # Special case: no differencing
+    # Independent-normal update: unchanged.
     if(!is.null(prior_mean)) linht = linht + prior_mean/evol_sigma_t2
-    # Posterior SDs and posterior means:
     postSD = 1/sqrt(1/obs_sigma_t2 + 1/evol_sigma_t2)
-    postMean = (linht)*postSD^2
-
-    # Sample the states:
-    mu = rnorm(n = nT, mean = postMean, sd = postSD)
-
-  } else {
-
-    # New sampler, based on spam package:
-    QHt_Matrix = build_Q(obs_sigma_t2 = obs_sigma_t2, evol_sigma_t2 = evol_sigma_t2, D = D)
-    if(!is.null(prior_mean)) linht = linht + crossprod(QHt_Matrix,prior_mean)
-    if(!is.null(chol0)){
-
-      # Sample the states:
-      mu = matrix(rmvnorm.canonical(n = 1,
-                                       b = linht,
-                                       Q = as.spam.dgCMatrix(as(QHt_Matrix, "dgCMatrix")),
-                                       Rstruct = chol0))
-    } else {
-
-      if(is.null(loc_obs)){
-      # Original sampler, based on Matrix package:
-
-      # Cholesky of Quadratic term:
-      chQht_Matrix = Matrix::chol(QHt_Matrix)
-
-      # Sample the states:
-      mu = as.matrix(Matrix::solve(chQht_Matrix,Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(nT)))
-
-      }else{
-        # sample_mat_c returns NaN when its Cholesky fails to factorize. Recover
-        # by compressing the dynamic range of the evolution variances and
-        # redrawing, rather than letting a failed draw enter the chain. The
-        # first attempt uses the variances as supplied, so draws that factorize
-        # normally are unaffected.
-        evol_try = evol_sigma_t2
-        for(attempt in 0:3){
-
-          if(attempt > 0)
-            evol_try = pmax(evol_sigma_t2, max(evol_sigma_t2)*10^(-13 + attempt))
-
-          if (D == 1) {
-            diag1 = 1/obs_sigma_t2 + 1/evol_try + c(1/evol_try[-1], 0)
-            diag2 = -1/evol_try[-1]
-            rd = RcppZiggurat::zrnorm(nT)
-            mu = as.matrix(sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2), length(diag1), length(loc_obs$r), c(linht), rd, D))
-          } else {
-            diag1 = 1/obs_sigma_t2 + 1/evol_try + c(0, 4/evol_try[-(1:2)], 0) + c(1/evol_try[-(1:2)], 0, 0)
-            diag2 = c(-2/evol_try[3], -2*(1/evol_try[-(1:2)] + c(1/evol_try[-(1:3)],0)))
-            diag3 = 1/evol_try[-(1:2)]
-            rd = RcppZiggurat::zrnorm(nT)
-            mu = as.matrix(sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2, diag3, diag3), length(diag1), length(loc_obs$r), c(linht), rd, D))
-          }
-
-          if(all(is.finite(mu))) break
-        }
-
-        # Record that this draw needed the floor. Warning here would fire once
-        # per draw, so dsp_fit() reports the total for the fit instead.
-        if(attempt > 0 && all(is.finite(mu)))
-          .dsp_state$n_illcond = .dsp_state$n_illcond + 1L
-
-        if(!all(is.finite(mu)))
-          stop('sampleBTF: Cholesky failed to factorize the precision matrix, even ',
-               'after bounding the dynamic range of the evolution variances.')
-      }
-    }
+    postMean = linht*postSD^2
+    return(rnorm(n = nT, mean = postMean, sd = postSD))
   }
 
-  # And return the states:
-  mu
+  .btf_try_precision(
+    sampleBTF_precision(y, obs_sigma_t2, evol_sigma_t2, D,
+                        loc_obs, chol0, prior_mean),
+    sampleBTF_sqrt(y, obs_sigma_t2, evol_sigma_t2, D, prior_mean))
 }
+
+# Existing precision backends, attempted once with the supplied variances.
+# Recovery belongs to sampleBTF(), so no variance flooring is applied here.
+sampleBTF_precision <- function(y, obs_sigma_t2, evol_sigma_t2, D,
+                                loc_obs, chol0, prior_mean) {
+  nT <- length(y)
+  linht <- y/obs_sigma_t2
+  QHt_Matrix <- build_Q(obs_sigma_t2, evol_sigma_t2, D)
+  if(!is.null(prior_mean)) linht <- linht + crossprod(QHt_Matrix, prior_mean)
+
+  if(!is.null(chol0)) {
+    return(matrix(rmvnorm.canonical(n = 1, b = linht,
+      Q = as.spam.dgCMatrix(as(QHt_Matrix, "dgCMatrix")), Rstruct = chol0)))
+  }
+  if(is.null(loc_obs)) {
+    chQht_Matrix <- .btf_chol(QHt_Matrix)
+    return(as.matrix(Matrix::solve(chQht_Matrix,
+      Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(nT))))
+  }
+
+  if(D == 1) {
+    diag1 <- 1/obs_sigma_t2 + 1/evol_sigma_t2 + c(1/evol_sigma_t2[-1], 0)
+    diag2 <- -1/evol_sigma_t2[-1]
+    rd <- RcppZiggurat::zrnorm(nT)
+    as.matrix(sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2),
+      length(diag1), length(loc_obs$r), c(linht), rd, D))
+  } else {
+    diag1 <- 1/obs_sigma_t2 + 1/evol_sigma_t2 + c(0, 4/evol_sigma_t2[-(1:2)], 0) + c(1/evol_sigma_t2[-(1:2)], 0, 0)
+    diag2 <- c(-2/evol_sigma_t2[3], -2*(1/evol_sigma_t2[-(1:2)] + c(1/evol_sigma_t2[-(1:3)],0)))
+    diag3 <- 1/evol_sigma_t2[-(1:2)]
+    rd <- RcppZiggurat::zrnorm(nT)
+    as.matrix(sample_mat_c(loc_obs$r, loc_obs$c, c(diag1, diag2, diag2, diag3, diag3),
+      length(diag1), length(loc_obs$r), c(linht), rd, D))
+  }
+}
+
 #----------------------------------------------------------------------------
 #' Sampler for first or second order random walk (RW) Gaussian dynamic linear model (DLM)
 #' with additional shrinkage to zero
@@ -231,99 +187,97 @@ sampleBTF_reg = function(y, X, obs_sigma_t2, evol_sigma_t2, XtX, D = 1, chol0 = 
 
   # Some quick checks:
   if((D < 0) || (D != round(D)))  stop('D must be a positive integer')
+  if(!D %in% c(1, 2)) stop('sampleBTF_reg() requires D=1 or D=2')
 
   if(any(is.na(y))) stop('y cannot contain NAs')
 
   # Dimensions of X:
   nT = nrow(X); p = ncol(X)
 
-  if(D == 1){
-    # Lagged version of transposed precision matrix, with zeros as appropriate (needed below)
-    t_evol_prec_lag_mat = matrix(0, nrow = p, ncol = nT);
-    t_evol_prec_lag_mat[,1:(nT-1)] = t(1/evol_sigma_t2[-1,])
-
-    # Diagonal of quadratic term:
-    Q_diag = matrix(t(1/evol_sigma_t2) + t_evol_prec_lag_mat)
-
-    # Off-diagonal of quadratic term:
-    Q_off = matrix(-t_evol_prec_lag_mat)[-(nT*p)]
-
-    # Quadratic term:
-    Qevol = Matrix::bandSparse(nT*p, k = c(0,p), diagonals = list(Q_diag, Q_off), symmetric = TRUE)
-
-    # For checking via direct computation:
-    # H1 = bandSparse(nT, k = c(0,-1), diag = list(rep(1, nT), rep(-1, nT)), symmetric = FALSE)
-    # IH = kronecker(as.matrix(H1), diag(p));
-    # Q0 = t(IH)%*%diag(as.numeric(1/matrix(t(evol_sigma_t2))))%*%(IH)
-    # print(sum((Qevol - Q0)^2))
-
-  } else {
-    if(D == 2){
-
-      # Lagged x2 version of transposed precision matrix (recurring term)
-      t_evol_prec_lag2 = t(1/evol_sigma_t2[-(1:2),])
+  beta = .btf_try_precision({
+    if(D == 1){
+      # Lagged version of transposed precision matrix, with zeros as appropriate (needed below)
+      t_evol_prec_lag_mat = matrix(0, nrow = p, ncol = nT);
+      t_evol_prec_lag_mat[,1:(nT-1)] = t(1/evol_sigma_t2[-1,])
 
       # Diagonal of quadratic term:
-      Q_diag = t(1/evol_sigma_t2)
-      Q_diag[,2:(nT-1)] = Q_diag[,2:(nT-1)] + 4*t_evol_prec_lag2
-      Q_diag[,1:(nT-2)] = Q_diag[,1:(nT-2)] + t_evol_prec_lag2
-      Q_diag = matrix(Q_diag)
+      Q_diag = matrix(t(1/evol_sigma_t2) + t_evol_prec_lag_mat)
 
-      # Off-diagonal (1) of quadratic term:
-      Q_off_1 = matrix(0, nrow = p, ncol = nT);
-      Q_off_1[,1] = -2/evol_sigma_t2[3,]
-      Q_off_1[,2:(nT-1)] = Q_off_1[,2:(nT-1)] + -2*t_evol_prec_lag2
-      Q_off_1[,2:(nT-2)] = Q_off_1[,2:(nT-2)] + -2*t_evol_prec_lag2[,-1]
-      Q_off_1 = matrix(Q_off_1)
-
-      # Off-diagonal (2) of quadratic term:
-      Q_off_2 =  matrix(0, nrow = p, ncol = nT); Q_off_2[,1:(nT-2)] = t_evol_prec_lag2
-      Q_off_2 = matrix(Q_off_2)
+      # Off-diagonal of quadratic term:
+      Q_off = matrix(-t_evol_prec_lag_mat)[-(nT*p)]
 
       # Quadratic term:
-      Qevol = Matrix::bandSparse(nT*p, k = c(0, p, 2*p), diagonals= list(Q_diag, Q_off_1, Q_off_2), symmetric = TRUE)
+      Qevol = Matrix::bandSparse(nT*p, k = c(0,p), diagonals = list(Q_diag, Q_off), symmetric = TRUE)
 
-      # For checking via direct computation:
-      # H2 = bandSparse(nT, k = c(0,-1, -2), diag = list(rep(1, nT), c(0, rep(-2, nT-1)), rep(1, nT)), symmetric = FALSE)
-      # IH = kronecker(as.matrix(H2), diag(p));
-      # Q0 = t(IH)%*%diag(as.numeric(1/matrix(t(evol_sigma_t2))))%*%(IH)
-      # print(sum((Qevol - Q0)^2))
+      # Equals t(IH) %*% diag(1/c(t(evol_sigma_t2))) %*% IH, where
+      # IH = kronecker(H1, diag(p)) and H1 is the order-1 difference matrix.
 
-    } else stop('sampleBTF_reg() requires D=1 or D=2')
-  }
+    } else {
+      if(D == 2){
 
-  # Quadratic term:
-  Qobs = 1/rep(obs_sigma_t2, each = p)*XtX
-  Qpost = Qobs + Qevol
+        # Lagged x2 version of transposed precision matrix (recurring term)
+        t_evol_prec_lag2 = t(1/evol_sigma_t2[-(1:2),])
 
-  # Linear term:
-  linht = matrix(t(X*as.numeric(y/obs_sigma_t2))) #matrix(t(X*tcrossprod(y/obs_sigma_t2, rep(1,p))))
+        # Diagonal of quadratic term:
+        Q_diag = t(1/evol_sigma_t2)
+        Q_diag[,2:(nT-1)] = Q_diag[,2:(nT-1)] + 4*t_evol_prec_lag2
+        Q_diag[,1:(nT-2)] = Q_diag[,1:(nT-2)] + t_evol_prec_lag2
+        Q_diag = matrix(Q_diag)
 
-  if(!is.null(chol0)){
-    # Use spam sampler (new version)
+        # Off-diagonal (1) of quadratic term:
+        Q_off_1 = matrix(0, nrow = p, ncol = nT);
+        Q_off_1[,1] = -2/evol_sigma_t2[3,]
+        Q_off_1[,2:(nT-1)] = Q_off_1[,2:(nT-1)] + -2*t_evol_prec_lag2
+        Q_off_1[,2:(nT-2)] = Q_off_1[,2:(nT-2)] + -2*t_evol_prec_lag2[,-1]
+        Q_off_1 = matrix(Q_off_1)
 
-    # Convert to spam object:
-    QHt_Matrix = spam::as.spam.dgCMatrix(as(Qpost, "dgCMatrix"))
+        # Off-diagonal (2) of quadratic term:
+        Q_off_2 =  matrix(0, nrow = p, ncol = nT); Q_off_2[,1:(nT-2)] = t_evol_prec_lag2
+        Q_off_2 = matrix(Q_off_2)
 
-    # NOTE: reorder (opposite of log-vol!)
-    beta = matrix(spam::rmvnorm.canonical(n = 1,
-                                    b = linht,
-                                    Q = QHt_Matrix,
-                                    Rstruct = chol0),
-                  nrow = nT, byrow = TRUE)
-  } else {
-    # Use original sampler:
+        # Quadratic term:
+        Qevol = Matrix::bandSparse(nT*p, k = c(0, p, 2*p), diagonals= list(Q_diag, Q_off_1, Q_off_2), symmetric = TRUE)
 
-    # Cholesky:
-    chQht_Matrix = Matrix::chol(Qpost)
+        # Equals t(IH) %*% diag(1/c(t(evol_sigma_t2))) %*% IH, where
+        # IH = kronecker(H2, diag(p)) and H2 is the order-2 difference matrix.
 
-    # NOTE: reorder (opposite of log-vol!)
-    beta = matrix(Matrix::solve(chQht_Matrix,Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(nT*p)), nrow = nT, byrow = TRUE)
-  }
+      } else stop('sampleBTF_reg() requires D=1 or D=2')
+    }
+
+    # Quadratic term:
+    Qobs = 1/rep(obs_sigma_t2, each = p)*XtX
+    Qpost = Qobs + Qevol
+
+    # Linear term:
+    linht = matrix(t(X*as.numeric(y/obs_sigma_t2))) #matrix(t(X*tcrossprod(y/obs_sigma_t2, rep(1,p))))
+
+    if(!is.null(chol0)){
+      # Use spam sampler (new version)
+
+      # Convert to spam object:
+      QHt_Matrix = spam::as.spam.dgCMatrix(as(Qpost, "dgCMatrix"))
+
+      # NOTE: reorder (opposite of log-vol!)
+      beta = matrix(spam::rmvnorm.canonical(n = 1,
+                                      b = linht,
+                                      Q = QHt_Matrix,
+                                      Rstruct = chol0),
+                    nrow = nT, byrow = TRUE)
+    } else {
+      # Use original sampler:
+
+      # Cholesky:
+      chQht_Matrix = .btf_chol(Qpost)
+
+      # NOTE: reorder (opposite of log-vol!)
+      beta = matrix(Matrix::solve(chQht_Matrix,Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(nT*p)), nrow = nT, byrow = TRUE)
+    }
+    beta
+  }, sampleBTF_reg_sqrt(y, X, obs_sigma_t2, evol_sigma_t2, D))
   beta
 }
 #----------------------------------------------------------------------------
-#' (Backfitting) Sampler for first or second order random walk (RW) Gaussian dynamic linear model (DLM)
+#' (Backfitting) sampler for first or second order random walk (RW) Gaussian dynamic linear model (DLM)
 #'
 #' Compute one draw of the \code{T x p} state variable \code{beta} in a DLM using back-band substitution methods.
 #' This model is equivalent to the Bayesian trend filtering (BTF) model applied to \code{p}
@@ -377,15 +331,18 @@ sampleBTF_reg_backfit = function(y, X, beta, obs_sigma_t2, evol_sigma_t2, D = 1)
     } else {
       # Quadratic term (D = 1 or D = 2)
       # The likelihood precision term is simply X[,j]^2/obs_sigma_t2, so invert here:
-      QHt_Matrix = build_Q(obs_sigma_t2 = obs_sigma_t2/X[,j]^2,
-                           evol_sigma_t2 = evol_sigma_t2[,j],
-                           D = D)
+      beta[,j] = .btf_try_precision({
+        QHt_Matrix = build_Q(obs_sigma_t2 = obs_sigma_t2/X[,j]^2,
+                             evol_sigma_t2 = evol_sigma_t2[,j],
+                             D = D)
 
-      # Cholesky of Quadratic term:
-      chQht_Matrix = Matrix::chol(QHt_Matrix)
+        # Cholesky of Quadratic term:
+        chQht_Matrix = .btf_chol(QHt_Matrix)
 
-      # Sample the states:
-      beta[,j] = as.matrix(Matrix::solve(chQht_Matrix,Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(nT)))
+        # Sample the states:
+        as.matrix(Matrix::solve(chQht_Matrix,Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(nT)))
+      }, sampleBTF_sqrt(y_nj, obs_sigma_t2, evol_sigma_t2[,j], D,
+                        predictor = X[,j]))
     }
   }
   beta
@@ -420,45 +377,48 @@ sampleBTF_bspline = function(y, X, obs_sigma2, evol_sigma_t2, XtX_bands, Xty = N
   # Dimensions of X:
   nT = nrow(X); p = ncol(X)
 
-  # Linear term:
-  if(is.null(Xty)) Xty = crossprod(X, y)
-  linht = 1/obs_sigma2*Xty
+  beta = .btf_try_precision({
+    # Linear term:
+    if(is.null(Xty)) Xty = crossprod(X, y)
+    linht = 1/obs_sigma2*Xty
 
-  # Quadratic terms and solutions are computed differently, depending on D:
-  if(D == 0){
-    # Special case: no differencing
-    QHt_Matrix = Matrix::bandSparse(p, k = c(0,1,2,3),
-                            diagonals= list(XtX_bands$XtX_0/obs_sigma2,
-                                        XtX_bands$XtX_1/obs_sigma2,
-                                        XtX_bands$XtX_2/obs_sigma2,
-                                        XtX_bands$XtX_3/obs_sigma2),
-                            symmetric = TRUE)
-  } else {
-    # Prior/evoluation quadratic term: can construct directly for D = 1 or D = 2
-    if(D == 1){
+    # Quadratic terms and solutions are computed differently, depending on D:
+    if(D == 0){
+      # Special case: no differencing
       QHt_Matrix = Matrix::bandSparse(p, k = c(0,1,2,3),
-                              diagonals= list(XtX_bands$XtX_0/obs_sigma2 + 1/evol_sigma_t2 + c(1/evol_sigma_t2[-1], 0),
-                                          XtX_bands$XtX_1/obs_sigma2 + -1/evol_sigma_t2[-1],
+                              diagonals= list(XtX_bands$XtX_0/obs_sigma2,
+                                          XtX_bands$XtX_1/obs_sigma2,
                                           XtX_bands$XtX_2/obs_sigma2,
                                           XtX_bands$XtX_3/obs_sigma2),
                               symmetric = TRUE)
     } else {
-      if(D == 2){
+      # Prior/evoluation quadratic term: can construct directly for D = 1 or D = 2
+      if(D == 1){
         QHt_Matrix = Matrix::bandSparse(p, k = c(0,1,2,3),
-                                diagonals= list(XtX_bands$XtX_0/obs_sigma2 + 1/evol_sigma_t2 + c(0, 4/evol_sigma_t2[-(1:2)], 0) + c(1/evol_sigma_t2[-(1:2)], 0, 0),
-                                            XtX_bands$XtX_1/obs_sigma2 + c(-2/evol_sigma_t2[3], -2*(1/evol_sigma_t2[-(1:2)] + c(1/evol_sigma_t2[-(1:3)],0))),
-                                            XtX_bands$XtX_2/obs_sigma2 + 1/evol_sigma_t2[-(1:2)],
+                                diagonals= list(XtX_bands$XtX_0/obs_sigma2 + 1/evol_sigma_t2 + c(1/evol_sigma_t2[-1], 0),
+                                            XtX_bands$XtX_1/obs_sigma2 + -1/evol_sigma_t2[-1],
+                                            XtX_bands$XtX_2/obs_sigma2,
                                             XtX_bands$XtX_3/obs_sigma2),
                                 symmetric = TRUE)
-      } else stop('sampleBTF_bspline() requires D=0, D=1, or D=2')
+      } else {
+        if(D == 2){
+          QHt_Matrix = Matrix::bandSparse(p, k = c(0,1,2,3),
+                                  diagonals= list(XtX_bands$XtX_0/obs_sigma2 + 1/evol_sigma_t2 + c(0, 4/evol_sigma_t2[-(1:2)], 0) + c(1/evol_sigma_t2[-(1:2)], 0, 0),
+                                              XtX_bands$XtX_1/obs_sigma2 + c(-2/evol_sigma_t2[3], -2*(1/evol_sigma_t2[-(1:2)] + c(1/evol_sigma_t2[-(1:3)],0))),
+                                              XtX_bands$XtX_2/obs_sigma2 + 1/evol_sigma_t2[-(1:2)],
+                                              XtX_bands$XtX_3/obs_sigma2),
+                                  symmetric = TRUE)
+        } else stop('sampleBTF_bspline() requires D=0, D=1, or D=2')
+      }
     }
-  }
 
-  # Cholesky:
-  chQht_Matrix = Matrix::chol(QHt_Matrix)
+    # Cholesky:
+    chQht_Matrix = .btf_chol(QHt_Matrix)
 
-  # And sample the basis coefficients:
-  beta = Matrix::solve(chQht_Matrix,Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(p))
+    # And sample the basis coefficients:
+    beta = Matrix::solve(chQht_Matrix,Matrix::solve(Matrix::t(chQht_Matrix), linht) + rnorm(p))
+    beta
+  }, sampleBTF_bspline_sqrt(y, X, obs_sigma2, evol_sigma_t2, D))
 
   # Return the sampled basis coefficients:
   beta
@@ -491,16 +451,8 @@ sampleLogVols = function(h_y, h_prev, h_mu, h_phi, h_sigma_eta_t, h_sigma_eta_0,
   h_prev = as.matrix(h_prev) # Just to be sure (T x p)
   n = nrow(h_prev); p = ncol(h_prev)
 
-  # Mixture params: mean, variance, and weights
-  # Kim, Shephard, Chib (1998) 7-component mixture:
-  #m_st  = c(-11.40039, -5.24321, -9.83726, 1.50746,  -0.65098, 0.52478,  -2.35859)
-  #v_st2 = c(5.795960,  2.613690, 5.179500, 0.167350, 0.640090, 0.340230, 1.262610)
-  #q     = c(0.007300,  0.105560, 0.000020, 0.043950, 0.340010, 0.245660, 0.257500)
-
-  # Omori, Chib, Shephard, Nakajima (2007) 10-component mixture:
-  # m_st  = c(1.92677, 1.34744, 0.73504, 0.02266, -0.85173, -1.97278, -3.46788, -5.55246, -8.68384, -14.65000)
-  # v_st2 = c(0.11265, 0.17788, 0.26768, 0.40611,  0.62699,  0.98583,  1.57469,  2.54498,  4.16591,   7.33342)
-  # q     = c(0.00609, 0.04775, 0.13057, 0.20674,  0.22715,  0.18842,  0.12047,  0.05591,  0.01575,   0.00115)
+  # The log(y^2) errors use the 10-component mixture of Omori, Chib, Shephard,
+  # and Nakajima (2007); its parameters are set in sample_j_wrap().
 
   # Add an offset: common for all times, but distict for each j=1,...,p
   yoffset = tcrossprod(rep(1,n),
@@ -566,7 +518,7 @@ sampleLogVols = function(h_y, h_prev, h_mu, h_phi, h_sigma_eta_t, h_sigma_eta_0,
   hsamp
 }
 #----------------------------------------------------------------------------
-#' Sampler evolution error variance parameters
+#' Sample the evolution error variance parameters
 #'
 #' Compute one draw of evolution error variance parameters under the various options:
 #' \itemize{
@@ -615,7 +567,6 @@ sampleEvolParams = function(omega, evolParams,  sigma_e = 1, evol_error = "DHS",
     # Global scale params:
     evolParams$tauLambda = rgamma(n = p, shape = 0.5 + n/2, colSums(evolParams$xiLambdaj) + evolParams$xiLambda)
     evolParams$xiLambda = rgamma(n = p, shape = 1, rate = evolParams$tauLambda + 1/sigma_e^2)
-    #evolParams$xiLambda = rgamma(n = p, shape = 1, rate = evolParams$tauLambda + 1)
 
     evolParams$sigma_wt = 1/sqrt(evolParams$tauLambdaj)
 
@@ -642,7 +593,6 @@ sampleEvolParams = function(omega, evolParams,  sigma_e = 1, evol_error = "DHS",
     return(evolParams)
   }
   if(evol_error == "SV") return(sampleSVparams(omega = omega, svParams = evolParams))
-  #if(evol_error == "SV") return(sampleSVparams0(omega = omega, svParams = evolParams))
   if(evol_error == "NIG") {
     evolParams = list(sigma_wt = tcrossprod(rep(1,n),
                                             apply(omega, 2,
@@ -747,7 +697,6 @@ sampleSVparams = function(omega, svParams){
   for(j in 1:p){
     # First, check for numerical issues:
     svInput = omega[,j]; #if(all(svInput==0)) {svInput = 10^-8} else svInput = svInput + sd(svInput)/10^8
-    #hsOffset = tcrossprod(rep(1,n), apply(omega, 2, function(x) any(x^2 < 10^-16)*max(10^-8, mad(x)/10^6)))
 
     # Sample the SV parameters:
     svsamp = stochvol::svsample_fast_cpp(svInput,
@@ -917,7 +866,6 @@ sampleLogVolMu = function(h, h_mu, h_phi, h_sigma_eta_t, h_sigma_eta_0, h_log_sc
   x_mu = tcrossprod(rep(1,n-1), 1 - h_phi)/h_sigma_eta_t
 
   # Include the initial sd?
-  #if(!is.null(h_sigma_eta_0)){y_mu = rbind(h[1,]/h_sigma_eta_0, y_mu); x_mu = rbind(1/h_sigma_eta_0, x_mu)}
   y_mu = rbind(h[1,]/h_sigma_eta_0, y_mu);
   x_mu = rbind(1/h_sigma_eta_0, x_mu)
 
@@ -993,7 +941,6 @@ sampleEvol0 = function(mu0, evolParams0, commonSD = FALSE, A = 1){
     evolParams0$sigma_w0 = 1/sqrt(rgamma(n = p, shape = 1/2 + 1/2, rate = mu02/2 + evolParams0$px_sigma_w0))
 
     # (Distinct) paramater expansion:
-    #evolParams0$px_sigma_w0 = rgamma(n = p, shape = 1/2 + 1/2, rate = 1/evolParams0$sigma_w0^2 + 1/A^2)
     evolParams0$px_sigma_w0 = rgamma(n = p, shape = 1/2 + 1/2, rate = 1/evolParams0$sigma_w0^2 + 1/evolParams0$sigma_00^2)
 
     # Global standard deviations:
@@ -1007,7 +954,7 @@ sampleEvol0 = function(mu0, evolParams0, commonSD = FALSE, A = 1){
   evolParams0
 }
 #----------------------------------------------------------------------------
-#' Sample a Gaussian vector using the fast sampler of BHATTACHARYA et al.
+#' Sample a Gaussian vector using the fast sampler of Bhattacharya et al.
 #'
 #' Sample from N(mu, Sigma) where Sigma = solve(crossprod(Phi) + solve(D))
 #' and mu = Sigma*crossprod(Phi, alpha):
@@ -1040,7 +987,7 @@ sampleFastGaussian = function(Phi, Ddiag, alpha){
   # Return theta:
   theta
 }
-#' Sampling from 10-component Gaussian Mixture component described in Omori et al. 2007
+#' Sample components of the 10-component Gaussian mixture of Omori et al. (2007)
 #'
 #' Samples from the conditional posterior distribution of the \eqn{log(\chi^2)} distribution
 #' by approximating it with the mixture Gaussian distribution described in Omori et al. 2007.
